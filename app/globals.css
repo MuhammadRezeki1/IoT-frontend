@@ -1,26 +1,167 @@
-@import "tailwindcss";
+@import "tailwindcss/preflight";
+@tailwind utilities;
 
+/* ================= ROOT VARIABLES ================= */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg-dark: #0a0a1f;
+  --purple: #8b5cf6;
+  --cyan: #22d3ee;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html, body {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg-dark);
+  color: #f8fafc;
+  overflow-x: hidden;
+}
+
+/* =========================================================
+   DASHBOARD ROOT
+   ========================================================= */
+.dashboard-root {
+  min-height: 100vh;
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 56px;
+  position: relative;
+}
+
+/* =========================================================
+   NAVBAR
+   ========================================================= */
+.dashboard-navbar {
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 28px;
+  padding: 28px 32px;
+  text-align: center;
+  margin: 16px auto 40px;
+}
+
+.dashboard-title {
+  font-size: clamp(2.2rem, 3.2vw, 3.2rem);
+  font-weight: 800;
+}
+
+.dashboard-subtitle {
+  margin-top: 6px;
+  color: #94a3b8;
+}
+
+/* =========================================================
+   CENTER CONTAINER
+   ========================================================= */
+.center-container {
+  max-width: 1280px;
+  margin-inline: auto;
+  width: 100%;
+}
+
+/* =========================================================
+   AURORA (GLOBAL – TIDAK DUPLIKAT)
+   ========================================================= */
+.aurora-left,
+.aurora-right {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  filter: blur(140px);
+  opacity: 0.45;
+  pointer-events: none;
+  z-index: 0;
+  transition: transform 0.2s ease-out;
+}
+
+.aurora-left {
+  background: radial-gradient(circle, var(--purple), transparent 70%);
+  top: -200px;
+  left: -200px;
+}
+
+.aurora-right {
+  background: radial-gradient(circle, var(--cyan), transparent 70%);
+  bottom: -200px;
+  right: -200px;
+}
+
+/* =========================================================
+   PARTICLES
+   ========================================================= */
+.particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: rgba(255,255,255,0.4);
+  border-radius: 9999px;
+  animation: float linear infinite;
+}
+
+@keyframes float {
+  from { transform: translateY(0); }
+  to { transform: translateY(-120vh); }
+}
+
+/* =========================================================
+   BUTTON
+   ========================================================= */
+.button {
+  padding: 20px 56px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, var(--purple), var(--cyan));
+  color: white;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  transition: all 0.3s ease;
+}
+
+/* =========================================================
+   CHART / CARD INTERACTION
+   ========================================================= */
+.metric-card {
+  transition: transform 0.45s cubic-bezier(0.22,1,0.36,1), box-shadow 0.45s ease;
+}
+
+.metric-card:hover {
+  transform: translateY(-6px) scale(1.015);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.45);
+}
+
+.chart-smooth:hover canvas,
+.chart-smooth:hover svg {
+  transform: scale(1.02);
+  filter: drop-shadow(0 0 12px rgba(34,211,238,0.25));
+}
+
+/* =========================================================
+   KESIMPULAN CARD (TIDAK BENTROK)
+   ========================================================= */
+.kesimpulan-card {
+  position: relative;
+  max-width: 1100px;
+  padding: 28px 32px;
+  border-radius: 28px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  overflow: hidden;
+  z-index: 10;
+}
+
+.kesimpulan-aurora {
+  position: absolute;
+  inset: -40%;
+  background:
+    radial-gradient(circle at top left, rgba(139,92,246,0.35), transparent 55%),
+    radial-gradient(circle at bottom right, rgba(34,211,238,0.35), transparent 55%);
+  filter: blur(140px);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.kesimpulan-card:hover .kesimpulan-aurora {
+  opacity: 1;
 }
