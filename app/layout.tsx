@@ -1,17 +1,8 @@
 import "./globals.css";
-import { Playfair_Display, Inter } from "next/font/google";
 
-const playfair = Playfair_Display({
-  subsets: ["latin"],
-  weight: ["700", "800", "900"],
-  variable: "--font-playfair",
-});
-
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-inter",
-});
+export const metadata = {
+  title: "Energy Monitor",
+};
 
 export default function RootLayout({
   children,
@@ -19,8 +10,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="id" className={`${playfair.variable} ${inter.variable}`}>
-      <body className="bg-black text-white font-(--font-inter)">
+    <html lang="en">
+      <body>
         {children}
       </body>
     </html>
