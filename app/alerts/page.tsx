@@ -8,20 +8,20 @@ import {
   CheckCircle, 
   Info,
   Mail,
-  TrendingUp,
-  Zap,
-  Activity
 } from "lucide-react";
 
 /* ================= TYPES ================= */
 type RawPowerData = {
   id: number;
-  tegangan: number;
-  arus: number;
-  daya_watt: number;
-  energi_kwh: number;
-  frekuensi: number;
-  pf: number;
+  tegangan?: number;
+  tegangan_v?: number;
+  arus?: number;
+  arus_a?: number;
+  daya_watt?: number;
+  energi_kwh?: number;
+  frekuensi?: number;
+  pf?: number;
+  faktor_daya?: number;
   created_at: string;
 };
 
@@ -59,27 +59,82 @@ export default function AlertsNotificationsPage() {
   });
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [apiEndpoint, setApiEndpoint] = useState<string>('');
 
   /* ===== FETCH DATA FROM DATABASE ===== */
   useEffect(() => {
     const fetchData = async () => {
-      try {
-        const res = await fetch("http://localhost:3001/power");
-        const json: RawPowerData[] = await res.json();
-        
-        setData(json);
-        
-        // Analyze data and generate alerts
-        const generatedAlerts = analyzeDataForAlerts(json);
-        setAlerts(generatedAlerts);
-        
-        // Calculate statistics
-        const stats = calculateStatistics(generatedAlerts);
-        setStatistics(stats);
-        
-        setLoading(false);
-      } catch (e) {
-        console.error("API error", e);
+      // Try multiple endpoint possibilities
+      const endpoints = [
+        'http://localhost:3001/power',
+        'http://localhost:3001/power/all',
+        'http://localhost:3001/api/power',
+      ];
+
+      let success = false;
+      let lastError = '';
+
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`🔍 Trying endpoint: ${endpoint}`);
+          const res = await fetch(endpoint);
+          
+          if (res.ok) {
+            const json = await res.json();
+            console.log('✅ Data received from:', endpoint);
+            console.log('📊 Raw response:', json);
+
+            // Handle different response formats
+            let powerData: RawPowerData[] = [];
+            
+            if (Array.isArray(json)) {
+              powerData = json;
+            } else if (json && typeof json === 'object') {
+              if (Array.isArray(json.data)) {
+                powerData = json.data;
+              } else if (Array.isArray(json.results)) {
+                powerData = json.results;
+              } else {
+                console.warn('⚠️ Unknown response format:', json);
+                continue;
+              }
+            }
+
+            if (powerData.length === 0) {
+              console.warn('⚠️ Empty data from:', endpoint);
+              continue;
+            }
+
+            console.log(`✅ Processed ${powerData.length} power records`);
+            
+            setData(powerData);
+            setApiEndpoint(endpoint);
+            
+            // Analyze data and generate alerts
+            const generatedAlerts = analyzeDataForAlerts(powerData);
+            setAlerts(generatedAlerts);
+            
+            // Calculate statistics
+            const stats = calculateStatistics(generatedAlerts);
+            setStatistics(stats);
+            
+            setLoading(false);
+            setError(null);
+            success = true;
+            break; // Success, exit loop
+          } else {
+            console.warn(`❌ ${endpoint} returned ${res.status}`);
+            lastError = `HTTP ${res.status} from ${endpoint}`;
+          }
+        } catch (e) {
+          console.error(`❌ Error fetching from ${endpoint}:`, e);
+          lastError = e instanceof Error ? e.message : 'Network error';
+        }
+      }
+
+      if (!success) {
+        setError(`Failed to fetch data from all endpoints. Last error: ${lastError}`);
         setLoading(false);
       }
     };
@@ -93,23 +148,46 @@ export default function AlertsNotificationsPage() {
 
   /* ===== ANALYZE DATA FOR ALERTS ===== */
   const analyzeDataForAlerts = (data: RawPowerData[]): Alert[] => {
+    if (!Array.isArray(data)) {
+      console.error('❌ analyzeDataForAlerts received non-array:', data);
+      return [];
+    }
+
+    if (data.length === 0) {
+      console.log('⚠️ No data to analyze');
+      return [];
+    }
+
     const alerts: Alert[] = [];
     let alertId = 1;
+
+    console.log(`🔍 Analyzing ${data.length} records for alerts...`);
 
     // Sort data by date (newest first)
     const sortedData = [...data].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
 
-    sortedData.forEach((item, index) => {
+    // Only analyze last 50 records
+    const recentData = sortedData.slice(0, 50);
+
+    recentData.forEach((item) => {
       const timeAgo = getTimeAgo(item.created_at);
+      
+      // Normalize field names (handle both formats)
+      const voltage = item.tegangan ?? item.tegangan_v ?? 220;
+      const current = item.arus ?? item.arus_a ?? 0;
+      const power = item.daya_watt ?? 0;
+      const energy = item.energi_kwh ?? 0;
+      const frequency = item.frekuensi ?? 50;
+      const pf = item.pf ?? item.faktor_daya ?? 0.95;
 
       // Check for Overvoltage (> 240V)
-      if (item.tegangan > 240) {
+      if (voltage > 240) {
         alerts.push({
           id: `alert-${alertId++}`,
           icon: "critical",
-          title: `Overvoltage detected: ${item.tegangan}V at ${new Date(item.created_at).toLocaleTimeString('id-ID')}`,
+          title: `Overvoltage detected: ${voltage.toFixed(1)}V at ${new Date(item.created_at).toLocaleTimeString('id-ID')}`,
           time: timeAgo,
           severity: "High",
           bgColor: "bg-red-50",
@@ -120,11 +198,11 @@ export default function AlertsNotificationsPage() {
       }
       
       // Check for Undervoltage (< 200V)
-      else if (item.tegangan < 200) {
+      else if (voltage < 200 && voltage > 0) {
         alerts.push({
           id: `alert-${alertId++}`,
           icon: "warning",
-          title: `Undervoltage warning: ${item.tegangan}V at ${new Date(item.created_at).toLocaleTimeString('id-ID')}`,
+          title: `Undervoltage warning: ${voltage.toFixed(1)}V at ${new Date(item.created_at).toLocaleTimeString('id-ID')}`,
           time: timeAgo,
           severity: "High",
           bgColor: "bg-yellow-50",
@@ -134,12 +212,12 @@ export default function AlertsNotificationsPage() {
         });
       }
 
-      // Check for Overcurrent (> 5A for example)
-      if (item.arus > 5) {
+      // Check for Overcurrent (> 5A)
+      if (current > 5) {
         alerts.push({
           id: `alert-${alertId++}`,
           icon: "critical",
-          title: `Overcurrent detected on main line: ${item.arus}A at ${new Date(item.created_at).toLocaleTimeString('id-ID')}`,
+          title: `Overcurrent detected: ${current.toFixed(2)}A at ${new Date(item.created_at).toLocaleTimeString('id-ID')}`,
           time: timeAgo,
           severity: "High",
           bgColor: "bg-red-50",
@@ -150,11 +228,11 @@ export default function AlertsNotificationsPage() {
       }
 
       // Check for Low Power Factor (< 0.85)
-      if (item.pf < 0.85) {
+      if (pf < 0.85 && pf > 0) {
         alerts.push({
           id: `alert-${alertId++}`,
           icon: "warning",
-          title: `Power factor dropped to ${item.pf.toFixed(2)} at ${new Date(item.created_at).toLocaleTimeString('id-ID')}`,
+          title: `Power factor dropped to ${pf.toFixed(2)} at ${new Date(item.created_at).toLocaleTimeString('id-ID')}`,
           time: timeAgo,
           severity: "Medium",
           bgColor: "bg-yellow-50",
@@ -164,12 +242,12 @@ export default function AlertsNotificationsPage() {
         });
       }
 
-      // Check for Frequency deviation (not 50Hz ±0.5)
-      if (item.frekuensi < 49.5 || item.frekuensi > 50.5) {
+      // Check for Frequency deviation
+      if ((frequency < 49.5 || frequency > 50.5) && frequency > 0) {
         alerts.push({
           id: `alert-${alertId++}`,
           icon: "warning",
-          title: `Frequency deviation: ${item.frekuensi}Hz at ${new Date(item.created_at).toLocaleTimeString('id-ID')}`,
+          title: `Frequency deviation: ${frequency.toFixed(2)}Hz at ${new Date(item.created_at).toLocaleTimeString('id-ID')}`,
           time: timeAgo,
           severity: "Medium",
           bgColor: "bg-yellow-50",
@@ -180,11 +258,11 @@ export default function AlertsNotificationsPage() {
       }
 
       // Check for High Power Consumption (> 600W)
-      if (item.daya_watt > 600) {
+      if (power > 600) {
         alerts.push({
           id: `alert-${alertId++}`,
           icon: "info",
-          title: `High power consumption: ${item.daya_watt}W at ${new Date(item.created_at).toLocaleTimeString('id-ID')}`,
+          title: `High power consumption: ${power.toFixed(0)}W at ${new Date(item.created_at).toLocaleTimeString('id-ID')}`,
           time: timeAgo,
           severity: "Low",
           bgColor: "bg-blue-50",
@@ -195,13 +273,18 @@ export default function AlertsNotificationsPage() {
       }
     });
 
-    // Add success/normal operation alerts for good readings
-    const recentNormalData = sortedData.filter(item => 
-      item.tegangan >= 200 && item.tegangan <= 240 &&
-      item.arus < 5 &&
-      item.pf >= 0.85 &&
-      item.frekuensi >= 49.5 && item.frekuensi <= 50.5
-    );
+    // Add success alert for normal operation
+    const recentNormalData = sortedData.filter(item => {
+      const voltage = item.tegangan ?? item.tegangan_v ?? 220;
+      const current = item.arus ?? item.arus_a ?? 0;
+      const pf = item.pf ?? item.faktor_daya ?? 0.95;
+      const frequency = item.frekuensi ?? 50;
+      
+      return voltage >= 200 && voltage <= 240 &&
+             current < 5 &&
+             pf >= 0.85 &&
+             frequency >= 49.5 && frequency <= 50.5;
+    });
 
     if (recentNormalData.length > 0) {
       const latestNormal = recentNormalData[0];
@@ -218,13 +301,17 @@ export default function AlertsNotificationsPage() {
       });
     }
 
-    // Add daily energy report alert (based on most recent data)
+    // Add info alert
     if (sortedData.length > 0) {
+      const latestData = sortedData[0];
+      const energy = latestData.energi_kwh ?? 0;
+      const power = latestData.daya_watt ?? 0;
+      
       alerts.push({
         id: `alert-${alertId++}`,
         icon: "info",
-        title: `Daily energy report generated - Total: ${sortedData[0].energi_kwh.toFixed(2)} kWh`,
-        time: getTimeAgo(sortedData[0].created_at),
+        title: `Latest reading - Energy: ${energy.toFixed(3)} kWh, Power: ${power.toFixed(0)}W`,
+        time: getTimeAgo(latestData.created_at),
         severity: "Low",
         bgColor: "bg-blue-50",
         borderColor: "border-blue-200",
@@ -233,26 +320,24 @@ export default function AlertsNotificationsPage() {
       });
     }
 
-    // Sort alerts by severity and time
-    return alerts.sort((a, b) => {
+    const sortedAlerts = alerts.sort((a, b) => {
       const severityOrder = { High: 0, Medium: 1, Low: 2 };
       return severityOrder[a.severity] - severityOrder[b.severity];
     });
+
+    console.log(`✅ Generated ${sortedAlerts.length} alerts`);
+    return sortedAlerts;
   };
 
-  /* ===== CALCULATE STATISTICS ===== */
   const calculateStatistics = (alerts: Alert[]): AlertStatistics => {
-    const stats = {
+    return {
       critical: alerts.filter(a => a.icon === "critical").length,
       warning: alerts.filter(a => a.icon === "warning").length,
       info: alerts.filter(a => a.icon === "info").length,
       resolved: alerts.filter(a => a.icon === "success").length,
     };
-
-    return stats;
   };
 
-  /* ===== GET TIME AGO ===== */
   const getTimeAgo = (dateString: string): string => {
     const now = new Date();
     const then = new Date(dateString);
@@ -267,7 +352,6 @@ export default function AlertsNotificationsPage() {
     return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
   };
 
-  /* ===== GET ALERT ICON ===== */
   const getAlertIcon = (type: AlertType) => {
     const iconProps = { size: 24 };
     
@@ -285,7 +369,6 @@ export default function AlertsNotificationsPage() {
     }
   };
 
-  /* ===== GET SEVERITY BADGE ===== */
   const getSeverityBadge = (severity: AlertSeverity) => {
     const styles = {
       High: "bg-red-500 text-white",
@@ -300,12 +383,10 @@ export default function AlertsNotificationsPage() {
     );
   };
 
-  /* ===== TOGGLE EMAIL NOTIFICATIONS ===== */
   const handleEmailToggle = () => {
     setEmailNotifications(!emailNotifications);
   };
 
-  /* ===== LOADING STATE ===== */
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -319,30 +400,64 @@ export default function AlertsNotificationsPage() {
             animate={{ rotate: 360 }}
             transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
           />
-          <p className="text-gray-600">Analyzing system data...</p>
+          <p className="text-gray-600">Connecting to backend...</p>
+          <p className="text-xs text-gray-500 mt-2">Trying multiple endpoints...</p>
         </motion.div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="text-center bg-white p-8 rounded-2xl shadow-sm max-w-2xl">
+          <div className="text-red-500 text-5xl mb-4">⚠️</div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Cannot Connect to Backend</h2>
+          <p className="text-gray-600 mb-4">{error}</p>
+          
+          <div className="bg-gray-50 rounded-lg p-4 mb-4 text-left">
+            <p className="text-sm font-semibold text-gray-700 mb-2">Troubleshooting:</p>
+            <ul className="text-xs text-gray-600 space-y-1">
+              <li>1. Check if backend is running: <code className="bg-gray-200 px-1">npm run start:dev</code></li>
+              <li>2. Verify backend port is 3001</li>
+              <li>3. Test endpoint: <code className="bg-gray-200 px-1">curl http://localhost:3001/power</code></li>
+              <li>4. Check CORS is enabled in backend</li>
+              <li>5. Check browser console (F12) for errors</li>
+            </ul>
+          </div>
+          
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+          >
+            Retry Connection
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
-      {/* ================= HEADER ================= */}
       <motion.div 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="mb-8"
       >
         <h1 className="text-4xl font-bold text-gray-900">
-          Alerts &amp; Notifications
+          Alerts & Notifications
         </h1>
         <p className="text-gray-600 mt-2">Safety monitoring and alerts</p>
         <p className="text-sm text-gray-500 mt-1">
           Analyzing {data.length} data records • {alerts.length} alerts detected
         </p>
+        {apiEndpoint && (
+          <p className="text-xs text-blue-600 mt-1">
+            Connected to: {apiEndpoint}
+          </p>
+        )}
       </motion.div>
 
-      {/* ================= NOTIFICATION SETTINGS ================= */}
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -374,7 +489,6 @@ export default function AlertsNotificationsPage() {
             className={`relative w-16 h-8 rounded-full transition-colors duration-300 ${
               emailNotifications ? "bg-blue-500" : "bg-gray-300"
             }`}
-            aria-label="Toggle email notifications"
           >
             <motion.span
               animate={{ x: emailNotifications ? 32 : 0 }}
@@ -385,7 +499,6 @@ export default function AlertsNotificationsPage() {
         </div>
       </motion.div>
 
-      {/* ================= ALERT STATISTICS ================= */}
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -435,7 +548,6 @@ export default function AlertsNotificationsPage() {
         </div>
       </motion.div>
 
-      {/* ================= RECENT ALERTS ================= */}
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -473,7 +585,6 @@ export default function AlertsNotificationsPage() {
         )}
       </motion.div>
 
-      {/* ================= DATA SOURCE INFO ================= */}
       <motion.div 
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -486,7 +597,7 @@ export default function AlertsNotificationsPage() {
             Real-time Alert System
           </p>
           <p className="text-xs text-blue-700 mt-1">
-            Alerts generated from {data.length} power monitoring records • Auto-refresh every 30 seconds • Last updated: {new Date().toLocaleString('id-ID')}
+            {data.length} power records analyzed • {alerts.length} alerts generated • Auto-refresh: 30s • Updated: {new Date().toLocaleString('id-ID')}
           </p>
         </div>
       </motion.div>
@@ -494,7 +605,6 @@ export default function AlertsNotificationsPage() {
   );
 }
 
-/* ================= ALERT CARD COMPONENT ================= */
 function AlertCard({
   icon,
   title,
@@ -519,7 +629,6 @@ function AlertCard({
     >
       <div className="flex items-start gap-4 flex-1">
         <div className="shrink-0">{icon}</div>
-
         <div className="flex-1">
           <div className="flex items-start justify-between gap-4">
             <h3 className="text-lg font-bold text-gray-900">{title}</h3>
@@ -532,7 +641,6 @@ function AlertCard({
   );
 }
 
-/* ================= STAT CARD COMPONENT ================= */
 function StatCard({
   label,
   count,

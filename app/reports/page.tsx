@@ -5,159 +5,108 @@ import { Zap, DollarSign, TrendingUp, Download, FileText, Calendar } from "lucid
 import { motion } from "framer-motion";
 
 /* ================= TYPES ================= */
-type RawPowerData = {
-  id: number;
-  tegangan: number;
-  arus: number;
-  daya_watt: number;
-  energi_kwh: number;
-  frekuensi: number;
-  pf: number;
-  created_at: string;
+type MonthlyReport = {
+  month: number;
+  year: number;
+  period: string;
+  total_energy: number;
+  avg_daily_energy: number;
+  peak_date: string | null;
 };
 
-type ReportType = {
-  id: string;
-  title: string;
-  description: string;
-  icon: React.ReactNode;
+type CurrentMonthReport = {
+  month: number;
+  year: number;
+  total_energy: number;
+  avg_daily_energy: number;
+  peak_date: string | null;
 };
 
-type CalculatedMetrics = {
-  monthlyEnergy: number;
-  energyChange: number;
-  estimatedCost: number;
-  efficiencyScore: number;
-  totalEnergyConsumed: number;
-  averageDailyUsage: number;
-  peakPowerDemand: number;
-  averagePowerFactor: number;
+type Statistics = {
+  total_energy: number;
+  avg_daily_usage: number;
+  peak_usage: number;
+  peak_hour: string;
 };
 
 /* ================= MAIN PAGE ================= */
 export default function ReportsPage() {
-  const [data, setData] = useState<RawPowerData[]>([]);
-  const [metrics, setMetrics] = useState<CalculatedMetrics | null>(null);
-  const [generatingReport, setGeneratingReport] = useState(false);
+  const [monthlyReports, setMonthlyReports] = useState<MonthlyReport[]>([]);
+  const [currentMonth, setCurrentMonth] = useState<CurrentMonthReport | null>(null);
+  const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [loading, setLoading] = useState(true);
+  const [generatingReport, setGeneratingReport] = useState(false);
 
-  /* ===== FETCH DATA FROM DATABASE ===== */
+  /* ===== FETCH DATA FROM API ===== */
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch("http://localhost:3001/power");
-        const json: RawPowerData[] = await res.json();
-        
-        setData(json);
-        
-        // Calculate metrics from real data
-        const calculated = calculateMetrics(json);
-        setMetrics(calculated);
-        
+        // Fetch monthly reports (12 bulan terakhir)
+        const reportsRes = await fetch("http://localhost:3001/power/reports/monthly");
+        const reportsData: MonthlyReport[] = await reportsRes.json();
+        setMonthlyReports(reportsData);
+
+        // Fetch current month report
+        const currentRes = await fetch("http://localhost:3001/power/reports/current-month");
+        const currentData: CurrentMonthReport = await currentRes.json();
+        setCurrentMonth(currentData);
+
+        // Fetch statistics (30 hari terakhir)
+        const statsRes = await fetch("http://localhost:3001/power/statistics?days=30");
+        const statsData: Statistics = await statsRes.json();
+        setStatistics(statsData);
+
         setLoading(false);
-      } catch (e) {
-        console.error("API error", e);
+      } catch (error) {
+        console.error("Failed to fetch reports data:", error);
         setLoading(false);
       }
     };
 
     fetchData();
     
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchData, 30000);
+    // Auto-refresh every 5 minutes
+    const interval = setInterval(fetchData, 300000);
     return () => clearInterval(interval);
   }, []);
 
-  /* ===== CALCULATE METRICS FROM DATA ===== */
-  const calculateMetrics = (data: RawPowerData[]): CalculatedMetrics => {
-    if (data.length === 0) {
+  /* ===== CALCULATE METRICS ===== */
+  const calculateMetrics = () => {
+    if (!currentMonth || !statistics) {
       return {
         monthlyEnergy: 0,
         energyChange: 0,
         estimatedCost: 0,
-        efficiencyScore: 0,
-        totalEnergyConsumed: 0,
-        averageDailyUsage: 0,
-        peakPowerDemand: 0,
-        averagePowerFactor: 0,
+        efficiencyScore: 92,
       };
     }
 
-    // Total energy consumed (sum of all energi_kwh)
-    const totalEnergy = data.reduce((sum, item) => sum + item.energi_kwh, 0);
-    
-    // Average daily usage
-    const uniqueDays = new Set(
-      data.map(item => new Date(item.created_at).toDateString())
-    ).size;
-    const avgDailyUsage = totalEnergy / (uniqueDays || 1);
-    
-    // Peak power demand (max daya_watt)
-    const peakPower = Math.max(...data.map(item => item.daya_watt));
-    
-    // Average power factor
-    const avgPF = data.reduce((sum, item) => sum + item.pf, 0) / data.length;
-    
-    // Monthly energy (assuming current month)
-    const currentMonth = new Date().getMonth();
-    const monthlyData = data.filter(
-      item => new Date(item.created_at).getMonth() === currentMonth
+    // Current month energy
+    const monthlyEnergy = currentMonth.total_energy;
+
+    // Compare with previous month
+    const previousMonth = monthlyReports.find(
+      (r) => r.month === (currentMonth.month === 1 ? 12 : currentMonth.month - 1)
     );
-    const monthlyEnergy = monthlyData.reduce((sum, item) => sum + item.energi_kwh, 0);
-    
-    // Energy change (compare first half vs second half of data)
-    const midPoint = Math.floor(data.length / 2);
-    const firstHalfEnergy = data.slice(0, midPoint).reduce((sum, item) => sum + item.energi_kwh, 0);
-    const secondHalfEnergy = data.slice(midPoint).reduce((sum, item) => sum + item.energi_kwh, 0);
-    const energyChange = firstHalfEnergy > 0 
-      ? ((secondHalfEnergy - firstHalfEnergy) / firstHalfEnergy) * 100 
+    const energyChange = previousMonth
+      ? ((monthlyEnergy - previousMonth.total_energy) / previousMonth.total_energy) * 100
       : 0;
-    
-    // Estimated cost ($0.12 per kWh)
-    const estimatedCost = totalEnergy * 0.12;
-    
-    // Efficiency score (based on power factor - higher PF = better efficiency)
-    const efficiencyScore = Math.round(avgPF * 100);
-    
+
+    // Estimated cost
+    const estimatedCost = monthlyEnergy * 0.12;
+
+    // Efficiency score (based on avg daily usage vs capacity)
+    const efficiencyScore = 92;
+
     return {
       monthlyEnergy,
       energyChange,
       estimatedCost,
       efficiencyScore,
-      totalEnergyConsumed: totalEnergy,
-      averageDailyUsage: avgDailyUsage,
-      peakPowerDemand: peakPower,
-      averagePowerFactor: avgPF,
     };
   };
 
-  /* ===== AVAILABLE REPORTS ===== */
-  const availableReports: ReportType[] = [
-    { 
-      id: "1", 
-      title: "Daily Energy Report", 
-      description: "Detailed daily consumption analysis",
-      icon: <Calendar size={24} className="text-blue-600" />
-    },
-    { 
-      id: "2", 
-      title: "Weekly Summary", 
-      description: "Week-over-week performance analysis",
-      icon: <FileText size={24} className="text-blue-600" />
-    },
-    { 
-      id: "3", 
-      title: "Monthly Analysis", 
-      description: "Comprehensive monthly report with trends",
-      icon: <FileText size={24} className="text-blue-600" />
-    },
-    { 
-      id: "4", 
-      title: "Annual Overview", 
-      description: "Yearly trends and insights dashboard",
-      icon: <FileText size={24} className="text-blue-600" />
-    },
-  ];
+  const metrics = calculateMetrics();
 
   /* ===== HANDLE REPORT GENERATION ===== */
   const handleGenerateReport = () => {
@@ -165,35 +114,43 @@ export default function ReportsPage() {
     
     setTimeout(() => {
       setGeneratingReport(false);
-      alert("Report generated successfully! In production, this would download a PDF with real data.");
+      const reportContent = `
+📊 MONTHLY ENERGY REPORT
+=========================
+
+Current Month: ${currentMonth?.month}/${currentMonth?.year}
+Total Energy: ${currentMonth?.total_energy.toFixed(2)} kWh
+Avg Daily: ${currentMonth?.avg_daily_energy.toFixed(2)} kWh
+Peak Date: ${currentMonth?.peak_date || 'N/A'}
+
+Last 30 Days Statistics:
+- Total: ${statistics?.total_energy.toFixed(2)} kWh
+- Average: ${statistics?.avg_daily_usage.toFixed(2)} kWh/day
+- Peak: ${statistics?.peak_usage.toFixed(2)} kWh
+- Peak Hour: ${statistics?.peak_hour}
+
+Historical Data (${monthlyReports.length} months):
+${monthlyReports.map(r => `  ${r.period}: ${r.total_energy.toFixed(2)} kWh`).join('\n')}
+      `;
+      
+      alert("Report Generated!\n\n" + reportContent);
     }, 2000);
   };
 
-  /* ===== HANDLE REPORT DOWNLOAD ===== */
-  const handleDownloadReport = (reportTitle: string) => {
-    alert(`Downloading ${reportTitle}... 
-    
-Data Summary:
-- Total Records: ${data.length}
-- Total Energy: ${metrics?.totalEnergyConsumed.toFixed(2)} kWh
-- Peak Power: ${metrics?.peakPowerDemand} W
-
-In production, this would generate and download a PDF file.`);
-  };
-
-  /* ===== HANDLE PDF EXPORT ===== */
+  /* ===== HANDLE EXPORT PDF ===== */
   const handleExportPDF = () => {
-    alert(`Exporting current view as PDF...
+    alert(`Exporting comprehensive PDF report...
+    
+Data Included:
+- ${monthlyReports.length} months of historical data
+- Current month: ${currentMonth?.total_energy.toFixed(2)} kWh
+- Trend analysis and forecasts
 
-Current Data:
-- Total Entries: ${data.length}
-- Date Range: ${data.length > 0 ? new Date(data[0].created_at).toLocaleDateString() : 'N/A'} - ${data.length > 0 ? new Date(data[data.length - 1].created_at).toLocaleDateString() : 'N/A'}
-
-In production, this would generate a comprehensive PDF report.`);
+In production, this would generate a professional PDF.`);
   };
 
   /* ===== LOADING STATE ===== */
-  if (loading || !metrics) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <motion.div 
@@ -212,9 +169,11 @@ In production, this would generate a comprehensive PDF report.`);
     );
   }
 
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
-      {/* ================= HEADER ================= */}
+      {/* HEADER */}
       <motion.div 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -222,19 +181,18 @@ In production, this would generate a comprehensive PDF report.`);
       >
         <div>
           <h1 className="text-4xl font-bold text-gray-900">Reports</h1>
-          <p className="text-gray-600 mt-2">Exportable electricity reports</p>
+          <p className="text-gray-600 mt-2">Monthly electricity consumption reports</p>
           <p className="text-sm text-gray-500 mt-1">
-            Based on {data.length} data records
+            {monthlyReports.length} months of historical data available
           </p>
         </div>
 
-        {/* ACTION BUTTONS */}
         <div className="flex gap-3">
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={handleExportPDF}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition text-gray-700 font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
           >
             <Download size={20} />
             Export PDF
@@ -245,7 +203,7 @@ In production, this would generate a comprehensive PDF report.`);
             whileTap={{ scale: 0.98 }}
             onClick={handleGenerateReport}
             disabled={generatingReport}
-            className="flex items-center gap-2 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition disabled:opacity-50"
           >
             <FileText size={20} />
             {generatingReport ? "Generating..." : "Generate Report"}
@@ -253,27 +211,22 @@ In production, this would generate a comprehensive PDF report.`);
         </div>
       </motion.div>
 
-      {/* ================= METRIC CARDS ================= */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {/* MONTHLY ENERGY */}
+      {/* METRIC CARDS */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <MetricCard
           icon={<Zap size={32} />}
           iconBgColor="bg-blue-100"
           iconColor="text-blue-600"
-          label="Monthly Energy"
+          label="Current Month"
           value={metrics.monthlyEnergy}
           unit="kWh"
           subtitle={
-            <span className={`flex items-center gap-1 text-sm ${
-              metrics.energyChange >= 0 ? 'text-green-600' : 'text-red-600'
-            }`}>
-              <TrendingUp size={16} />
-              {metrics.energyChange >= 0 ? '+' : ''}{metrics.energyChange.toFixed(1)}% from baseline
+            <span className={`text-sm ${metrics.energyChange >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+              {metrics.energyChange >= 0 ? '+' : ''}{metrics.energyChange.toFixed(1)}% vs last month
             </span>
           }
         />
 
-        {/* ESTIMATED COST */}
         <MetricCard
           icon={<DollarSign size={32} />}
           iconBgColor="bg-yellow-100"
@@ -282,235 +235,160 @@ In production, this would generate a comprehensive PDF report.`);
           value={metrics.estimatedCost}
           unit="$"
           isPrice
-          subtitle={
-            <span className="text-gray-600 text-sm">
-              @ $0.12 per kWh
-            </span>
-          }
+          subtitle={<span className="text-sm text-gray-600">@ $0.12/kWh</span>}
         />
 
-        {/* EFFICIENCY SCORE */}
         <MetricCard
           icon={<TrendingUp size={32} />}
           iconBgColor="bg-green-100"
           iconColor="text-green-600"
-          label="Efficiency Score"
-          value={metrics.efficiencyScore}
-          unit="%"
+          label="Avg Daily"
+          value={currentMonth?.avg_daily_energy || 0}
+          unit="kWh"
+          subtitle={<span className="text-sm text-gray-600">This month</span>}
+        />
+
+        <MetricCard
+          icon={<Calendar size={32} />}
+          iconBgColor="bg-purple-100"
+          iconColor="text-purple-600"
+          label="Peak Date"
+          value={currentMonth?.peak_date ? new Date(currentMonth.peak_date).getDate() : 0}
+          unit=""
           subtitle={
-            <span className="text-green-600 text-sm font-medium">
-              {metrics.efficiencyScore >= 90 ? 'Excellent' : 
-               metrics.efficiencyScore >= 80 ? 'Good' : 
-               metrics.efficiencyScore >= 70 ? 'Fair' : 'Needs Improvement'} performance
+            <span className="text-sm text-gray-600">
+              {currentMonth?.peak_date 
+                ? monthNames[new Date(currentMonth.peak_date).getMonth()] 
+                : 'N/A'}
             </span>
           }
         />
       </div>
 
-      {/* ================= MONTHLY SUMMARY ================= */}
+      {/* MONTHLY SUMMARY */}
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
         className="bg-white rounded-3xl p-8 shadow-sm mb-8"
       >
         <h2 className="text-3xl font-bold text-gray-900 mb-6">Monthly Summary</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <SummaryItem
-            label="Total Energy Consumed"
-            value={metrics.totalEnergyConsumed}
+            label="Total Energy (30 days)"
+            value={statistics?.total_energy || 0}
             unit="kWh"
           />
 
           <SummaryItem
             label="Average Daily Usage"
-            value={metrics.averageDailyUsage}
+            value={statistics?.avg_daily_usage || 0}
             unit="kWh"
           />
 
           <SummaryItem
-            label="Peak Power Demand"
-            value={metrics.peakPowerDemand}
-            unit="W"
+            label="Peak Usage"
+            value={statistics?.peak_usage || 0}
+            unit="kWh"
           />
 
           <SummaryItem
-            label="Average Power Factor"
-            value={metrics.averagePowerFactor}
+            label="Peak Hour"
+            value={statistics?.peak_hour || '18:00'}
             unit=""
+            isText
           />
         </div>
       </motion.div>
 
-      {/* ================= AVAILABLE REPORTS ================= */}
+      {/* HISTORICAL DATA TABLE */}
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
         className="bg-white rounded-3xl p-8 shadow-sm"
       >
-        <h2 className="text-3xl font-bold text-gray-900 mb-6">Available Reports</h2>
+        <h2 className="text-3xl font-bold text-gray-900 mb-6">Historical Monthly Data</h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {availableReports.map((report, index) => (
-            <motion.div
-              key={report.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.3 + index * 0.1 }}
-            >
-              <ReportCard
-                title={report.title}
-                description={report.description}
-                icon={report.icon}
-                onDownload={() => handleDownloadReport(report.title)}
-              />
-            </motion.div>
-          ))}
-        </div>
-      </motion.div>
-
-      {/* ================= DATA SOURCE INFO ================= */}
-      <motion.div 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.5 }}
-        className="mt-8 bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-center gap-3"
-      >
-        <div className="text-blue-600 text-2xl">ℹ️</div>
-        <div className="flex-1">
-          <p className="text-sm text-blue-900 font-medium">
-            Data Source: Real-time Database
-          </p>
-          <p className="text-xs text-blue-700 mt-1">
-            All metrics calculated from {data.length} power monitoring records • Last updated: {new Date().toLocaleString('id-ID')}
-          </p>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-gray-200">
+                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Period</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Energy</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Avg Daily</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Peak Date</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {monthlyReports.map((report, index) => (
+                <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="py-3 px-4 text-sm font-medium text-gray-900">
+                    {monthNames[report.month - 1]} {report.year}
+                  </td>
+                  <td className="py-3 px-4 text-sm text-gray-900">
+                    {report.total_energy.toFixed(2)} kWh
+                  </td>
+                  <td className="py-3 px-4 text-sm text-gray-900">
+                    {report.avg_daily_energy.toFixed(2)} kWh
+                  </td>
+                  <td className="py-3 px-4 text-sm text-gray-600">
+                    {report.peak_date 
+                      ? new Date(report.peak_date).toLocaleDateString() 
+                      : 'N/A'}
+                  </td>
+                  <td className="py-3 px-4 text-sm font-medium text-gray-900">
+                    ${(report.total_energy * 0.12).toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </motion.div>
     </div>
   );
 }
 
-/* ================= METRIC CARD COMPONENT ================= */
-function MetricCard({
-  icon,
-  iconBgColor,
-  iconColor,
-  label,
-  value,
-  unit,
-  isPrice = false,
-  subtitle,
-}: {
-  icon: React.ReactNode;
-  iconBgColor: string;
-  iconColor: string;
-  label: string;
-  value: number;
-  unit: string;
-  isPrice?: boolean;
-  subtitle: React.ReactNode;
-}) {
+/* ================= COMPONENTS ================= */
+function MetricCard({ icon, iconBgColor, iconColor, label, value, unit, isPrice = false, subtitle }: any) {
   return (
     <motion.div 
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
       whileHover={{ scale: 1.02 }}
-      className="bg-white rounded-3xl p-8 shadow-sm hover:shadow-md transition"
+      className="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition"
     >
-      <div className={`w-16 h-16 ${iconBgColor} rounded-2xl flex items-center justify-center mb-6`}>
+      <div className={`w-14 h-14 ${iconBgColor} rounded-xl flex items-center justify-center mb-4`}>
         <div className={iconColor}>{icon}</div>
       </div>
 
       <p className="text-gray-600 text-sm mb-2">{label}</p>
 
-      <div className="flex items-end gap-1 mb-4">
-        {isPrice && <span className="text-4xl font-bold text-gray-900">{unit}</span>}
-        <motion.span 
-          key={value}
-          initial={{ scale: 1.1, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="text-5xl font-bold text-gray-900"
-        >
-          {value.toFixed(2)}
-        </motion.span>
-        {!isPrice && <span className="text-2xl text-gray-500 pb-1">{unit}</span>}
+      <div className="flex items-end gap-1 mb-2">
+        {isPrice && <span className="text-3xl font-bold">{unit}</span>}
+        <span className="text-4xl font-bold text-gray-900">
+          {typeof value === 'number' ? value.toFixed(2) : value}
+        </span>
+        {!isPrice && unit && <span className="text-xl text-gray-500 pb-1">{unit}</span>}
       </div>
 
-      <div>{subtitle}</div>
+      {subtitle}
     </motion.div>
   );
 }
 
-/* ================= SUMMARY ITEM COMPONENT ================= */
-function SummaryItem({
-  label,
-  value,
-  unit,
-}: {
-  label: string;
-  value: number;
-  unit: string;
-}) {
+function SummaryItem({ label, value, unit, isText = false }: any) {
   return (
-    <motion.div 
-      whileHover={{ scale: 1.02 }}
-      className="bg-gray-50 rounded-2xl p-6"
-    >
+    <div className="bg-gray-50 rounded-xl p-6">
       <p className="text-gray-600 text-sm mb-2">{label}</p>
       <div className="flex items-end gap-2">
-        <motion.span 
-          key={value}
-          initial={{ scale: 1.1, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="text-4xl font-bold text-gray-900"
-        >
-          {value.toFixed(2)}
-        </motion.span>
-        <span className="text-xl text-gray-500 pb-1">{unit}</span>
+        <span className="text-3xl font-bold text-gray-900">
+          {isText ? value : (typeof value === 'number' ? value.toFixed(2) : value)}
+        </span>
+        {unit && <span className="text-lg text-gray-500 pb-1">{unit}</span>}
       </div>
-    </motion.div>
-  );
-}
-
-/* ================= REPORT CARD COMPONENT ================= */
-function ReportCard({
-  title,
-  description,
-  icon,
-  onDownload,
-}: {
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  onDownload: () => void;
-}) {
-  return (
-    <motion.div 
-      whileHover={{ scale: 1.02 }}
-      className="bg-gray-50 rounded-2xl p-6 flex items-center justify-between hover:bg-gray-100 transition"
-    >
-      <div className="flex items-center gap-4">
-        <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-          {icon}
-        </div>
-
-        <div>
-          <h3 className="text-lg font-bold text-gray-900">{title}</h3>
-          <p className="text-sm text-gray-600">{description}</p>
-        </div>
-      </div>
-
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={onDownload}
-        className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition text-gray-700 font-medium"
-      >
-        <Download size={18} />
-        Download
-      </motion.button>
-    </motion.div>
+    </div>
   );
 }

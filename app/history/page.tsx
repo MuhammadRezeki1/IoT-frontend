@@ -17,20 +17,12 @@ import {
 /* ================= TYPES ================= */
 type TimeFilter = "Daily" | "Weekly" | "Monthly";
 
-type RawPowerData = {
-  id: number;
-  tegangan: number;
-  arus: number;
-  daya_watt: number;
-  energi_kwh: number;
-  frekuensi: number;
-  pf: number;
-  created_at: string;
-};
-
 type TrendData = {
   time: string;
   energy: number;
+  voltage?: number;
+  current?: number;
+  hour?: number;
 };
 
 type DailyUsageData = {
@@ -48,7 +40,7 @@ type Statistics = {
 
 /* ================= MAIN PAGE ================= */
 export default function EnergyUsageHistoryPage() {
-  const [activeFilter, setActiveFilter] = useState<TimeFilter>("Monthly");
+  const [activeFilter, setActiveFilter] = useState<TimeFilter>("Daily");
   const [trendData, setTrendData] = useState<TrendData[]>([]);
   const [dailyUsageData, setDailyUsageData] = useState<DailyUsageData[]>([]);
   const [statistics, setStatistics] = useState<Statistics>({
@@ -59,288 +51,147 @@ export default function EnergyUsageHistoryPage() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [rawData, setRawData] = useState<RawPowerData[]>([]);
 
-  /* ===== FETCH DATA FROM API ===== */
+  /* ===== FETCH STATISTICS ===== */
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      setError(null);
-      
+    const fetchStatistics = async () => {
       try {
-        // Ambil semua data dari endpoint utama
-        const res = await fetch("http://localhost:3001/power");
-        if (!res.ok) {
-          throw new Error(`Failed to fetch data: ${res.status}`);
-        }
-        const json: RawPowerData[] = await res.json();
-
-        // Simpan raw data
-        setRawData(json);
-
-        if (json.length > 0) {
-          // Generate statistics dari raw data
-          generateStatistics(json);
-          
-          // Generate trend data berdasarkan filter
-          generateTrendData(json, activeFilter);
-          
-          // Generate daily usage untuk bar chart
-          generateDailyUsageData(json);
-        } else {
-          setTrendData([]);
-          setDailyUsageData([]);
-        }
-      } catch (error) {
-        console.error("Failed to fetch data:", error);
-        setError(error instanceof Error ? error.message : "Unknown error");
+        console.log('📡 Fetching statistics...');
+        const res = await fetch("http://localhost:3001/power/statistics?days=30");
         
-        setStatistics({
-          total_energy: 0,
-          avg_daily_usage: 0,
-          peak_usage: 0,
-          peak_hour: "18:00",
-        });
-      } finally {
-        setLoading(false);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+        
+        const data = await res.json();
+        console.log('✅ Statistics received:', data);
+        setStatistics(data);
+      } catch (err) {
+        console.error("❌ Failed to fetch statistics:", err);
       }
     };
 
-    fetchData();
-    const interval = setInterval(fetchData, 30000);
+    fetchStatistics();
+    const interval = setInterval(fetchStatistics, 60000);
     return () => clearInterval(interval);
   }, []);
 
-  /* ===== UPDATE TREND DATA SAAT FILTER BERUBAH ===== */
+  /* ===== FETCH TREND DATA BERDASARKAN FILTER ===== */
   useEffect(() => {
-    if (rawData.length > 0) {
-      generateTrendData(rawData, activeFilter);
-    }
-  }, [activeFilter, rawData]);
+    const fetchTrendData = async () => {
+      console.log(`\n🔄 [${activeFilter}] Starting fetch...`);
+      setLoading(true);
+      setError(null);
 
-  /* ===== GENERATE STATISTICS ===== */
-  const generateStatistics = (data: RawPowerData[]) => {
-    if (data.length === 0) return;
+      try {
+        let endpoint = "";
+        if (activeFilter === "Daily") {
+          endpoint = "http://localhost:3001/power/daily";
+        } else if (activeFilter === "Weekly") {
+          endpoint = "http://localhost:3001/power/weekly";
+        } else {
+          endpoint = "http://localhost:3001/power/monthly";
+        }
 
-    const energyValues = data.map(item => item.energi_kwh);
-    const totalEnergy = energyValues.reduce((a, b) => a + b, 0);
-    const avgEnergy = totalEnergy / energyValues.length;
-    const peakEnergy = Math.max(...energyValues);
+        console.log(`📡 [${activeFilter}] Fetching from: ${endpoint}`);
 
-    // Hitung peak hour
-    const hourCounts: { [key: number]: number } = {};
-    data.forEach(item => {
-      const hour = new Date(item.created_at).getHours();
-      hourCounts[hour] = (hourCounts[hour] || 0) + 1;
-    });
+        const res = await fetch(endpoint);
+        
+        console.log(`📨 [${activeFilter}] Response status: ${res.status}`);
+        
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+        
+        const data = await res.json();
+        
+        console.log(`✅ [${activeFilter}] Data received:`, data);
+        console.log(`📊 [${activeFilter}] Data length: ${data.length}`);
 
-    let peakHour = 18;
-    let maxCount = 0;
-    for (const hour in hourCounts) {
-      if (hourCounts[hour] > maxCount) {
-        maxCount = hourCounts[hour];
-        peakHour = parseInt(hour);
+        if (data.length === 0) {
+          console.warn(`⚠️ [${activeFilter}] Empty array returned from API`);
+        }
+
+        // Format data untuk grafik
+        const formattedData = data.map((item: any) => ({
+          time: item.time || `Hour ${item.hour || 0}`,
+          energy: parseFloat(item.energy || item.total_energy || item.avg_energy || 0),
+          voltage: item.voltage ? parseFloat(item.voltage) : undefined,
+          current: item.current ? parseFloat(item.current) : undefined,
+          hour: item.hour ? parseInt(item.hour) : undefined,
+        }));
+
+        console.log(`✨ [${activeFilter}] Formatted data:`, formattedData.slice(0, 3));
+        
+        setTrendData(formattedData);
+        
+      } catch (err) {
+        console.error(`❌ [${activeFilter}] Fetch error:`, err);
+        setError(err instanceof Error ? err.message : "Unknown error");
+        setTrendData([]);
+      } finally {
+        setLoading(false);
+        console.log(`🏁 [${activeFilter}] Fetch complete\n`);
       }
-    }
+    };
 
-    setStatistics({
-      total_energy: parseFloat(totalEnergy.toFixed(2)),
-      avg_daily_usage: parseFloat(avgEnergy.toFixed(2)),
-      peak_usage: parseFloat(peakEnergy.toFixed(2)),
-      peak_hour: `${peakHour}:00`,
-    });
-  };
+    fetchTrendData();
+  }, [activeFilter]);
 
-  /* ===== GENERATE TREND DATA ===== */
-  const generateTrendData = (data: RawPowerData[], filter: TimeFilter) => {
-    if (data.length === 0) {
-      setTrendData([]);
-      return;
-    }
+  /* ===== FETCH DAILY USAGE DATA (Bar Chart) ===== */
+  useEffect(() => {
+    const fetchDailyUsage = async () => {
+      try {
+        console.log('📡 Fetching weekly data for bar chart...');
+        const res = await fetch("http://localhost:3001/power/weekly");
+        
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        
+        const data = await res.json();
+        console.log('✅ Weekly data for bar chart:', data);
+        
+        const formatted = data.map((item: any) => ({
+          day: item.time,
+          usage: parseFloat(item.energy || item.total_energy || 0),
+          date: item.date || new Date().toISOString().split('T')[0],
+        }));
 
-    let processed: TrendData[] = [];
-
-    if (filter === "Daily") {
-      // Simulasi 24 jam dari data yang ada
-      processed = simulateDailyData(data);
-    } else if (filter === "Weekly") {
-      // Simulasi 7 hari dari data yang ada
-      processed = simulateWeeklyData(data);
-    } else {
-      // Simulasi 30 hari dari data yang ada
-      processed = simulateMonthlyData(data);
-    }
-
-    setTrendData(processed);
-  };
-
-  /* ===== GENERATE DAILY USAGE DATA ===== */
-  const generateDailyUsageData = (data: RawPowerData[]) => {
-    if (data.length === 0) {
-      setDailyUsageData([]);
-      return;
-    }
-
-    const usage = simulateWeeklyDataForBarChart(data);
-    setDailyUsageData(usage);
-  };
-
-  /* ===== SIMULASI DAILY (24 JAM) - NILAI REAL ===== */
-  const simulateDailyData = (data: RawPowerData[]): TrendData[] => {
-    const result: TrendData[] = [];
-    const baseValues = data.slice(0, Math.min(7, data.length));
-
-    for (let hour = 0; hour < 24; hour++) {
-      // Ambil data secara cyclic
-      const sourceData = baseValues[hour % baseValues.length];
-      
-      // Variasi waktu SANGAT KECIL
-      let timeMultiplier = 1.0;
-      if (hour >= 0 && hour < 6) {
-        timeMultiplier = 0.92; // Dini hari sedikit lebih rendah
-      } else if (hour >= 6 && hour < 12) {
-        timeMultiplier = 0.97; // Pagi
-      } else if (hour >= 12 && hour < 18) {
-        timeMultiplier = 1.02; // Siang
-      } else if (hour >= 18 && hour < 22) {
-        timeMultiplier = 1.05; // Malam peak
-      } else {
-        timeMultiplier = 0.95; // Malam
+        console.log('✨ Formatted bar chart data:', formatted);
+        setDailyUsageData(formatted);
+        
+      } catch (err) {
+        console.error("❌ Failed to fetch daily usage:", err);
+        setDailyUsageData([]);
       }
-      
-      // Random variation SANGAT KECIL (±1%)
-      const variation = (Math.random() - 0.5) * 0.02;
-      const energy = sourceData.energi_kwh * timeMultiplier * (1 + variation);
-      
-      result.push({
-        time: `${hour}:00`,
-        energy: parseFloat(energy.toFixed(2)),
-      });
-    }
+    };
 
-    return result;
-  };
-
-  /* ===== SIMULASI WEEKLY (7 HARI) - NILAI REAL ===== */
-  const simulateWeeklyData = (data: RawPowerData[]): TrendData[] => {
-    const result: TrendData[] = [];
-    const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    const baseValues = data.slice(0, Math.min(7, data.length));
-
-    for (let i = 0; i < 7; i++) {
-      const sourceData = baseValues[i % baseValues.length];
-      
-      // Weekend SEDIKIT lebih tinggi (maksimal +3%)
-      let dayMultiplier = 1.0;
-      if (i === 5 || i === 6) { // Sabtu & Minggu
-        dayMultiplier = 1.03;
-      } else if (i === 0 || i === 4) { // Senin & Jumat
-        dayMultiplier = 1.01;
-      } else {
-        dayMultiplier = 0.99;
-      }
-      
-      // Random variation SANGAT KECIL (±1%)
-      const variation = (Math.random() - 0.5) * 0.02;
-      const energy = sourceData.energi_kwh * dayMultiplier * (1 + variation);
-      
-      result.push({
-        time: dayNames[i],
-        energy: parseFloat(energy.toFixed(2)),
-      });
-    }
-
-    return result;
-  };
-
-  /* ===== SIMULASI MONTHLY (30 HARI) - NILAI REAL ===== */
-  const simulateMonthlyData = (data: RawPowerData[]): TrendData[] => {
-    const result: TrendData[] = [];
-    const baseValues = data.slice(0, Math.min(7, data.length));
-
-    for (let day = 1; day <= 30; day++) {
-      const sourceData = baseValues[(day - 1) % baseValues.length];
-      
-      // Pattern mingguan SANGAT KECIL (maksimal ±2%)
-      const dayOfWeek = day % 7;
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-      const weekendMultiplier = isWeekend ? 1.02 : 0.99;
-      
-      // Pattern bulanan SANGAT KECIL (maksimal ±1.5%)
-      let monthPattern = 1.0;
-      if (day <= 10) {
-        monthPattern = 0.985;
-      } else if (day <= 20) {
-        monthPattern = 1.015;
-      } else {
-        monthPattern = 1.0;
-      }
-      
-      // Random variation SANGAT KECIL (±0.5%)
-      const variation = (Math.random() - 0.5) * 0.01;
-      const energy = sourceData.energi_kwh * weekendMultiplier * monthPattern * (1 + variation);
-      
-      result.push({
-        time: `Day ${day}`,
-        energy: parseFloat(energy.toFixed(2)),
-      });
-    }
-
-    return result;
-  };
-
-  /* ===== SIMULASI WEEKLY DATA UNTUK BAR CHART - NILAI REAL ===== */
-  const simulateWeeklyDataForBarChart = (data: RawPowerData[]): DailyUsageData[] => {
-    const result: DailyUsageData[] = [];
-    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const baseValues = data.slice(0, Math.min(7, data.length));
-    const now = new Date();
-
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      const dayIndex = date.getDay();
-      
-      const sourceData = baseValues[i % baseValues.length];
-      
-      // Weekend SEDIKIT lebih tinggi (maksimal +3%)
-      const isWeekend = dayIndex === 0 || dayIndex === 6;
-      const multiplier = isWeekend ? 1.03 : 0.99;
-      
-      // Random variation SANGAT KECIL (±1%)
-      const variation = (Math.random() - 0.5) * 0.02;
-      const energy = sourceData.energi_kwh * multiplier * (1 + variation);
-      
-      result.push({
-        day: dayNames[dayIndex],
-        usage: parseFloat(energy.toFixed(2)),
-        date: dateStr,
-      });
-    }
-
-    return result;
-  };
+    fetchDailyUsage();
+    const interval = setInterval(fetchDailyUsage, 300000);
+    return () => clearInterval(interval);
+  }, []);
 
   /* ===== HANDLE DATE RANGE PICKER ===== */
   const handleDateRangeClick = () => {
-    alert("Date range picker would open here. You can integrate a date picker library like react-datepicker.");
+    alert("Date range picker - integrate react-datepicker if needed");
   };
 
   // Loading state
-  if (loading) {
+  if (loading && trendData.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading data...</p>
+          <p className="text-gray-600">Loading energy data...</p>
+          <p className="text-sm text-gray-500 mt-2">Fetching {activeFilter.toLowerCase()} view</p>
         </div>
       </div>
     );
   }
 
   // Error state
-  if (error) {
+  if (error && trendData.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center bg-white p-8 rounded-2xl shadow-sm max-w-md">
@@ -348,7 +199,10 @@ export default function EnergyUsageHistoryPage() {
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Error Loading Data</h2>
           <p className="text-gray-600 mb-4">{error}</p>
           <p className="text-sm text-gray-500 mb-4">
-            Please make sure the backend server is running on http://localhost:3001
+            Please make sure:
+            <br />• Backend is running on http://localhost:3001
+            <br />• Database has data in hourly_energy table
+            <br />• Check browser console (F12) for details
           </p>
           <button
             onClick={() => window.location.reload()}
@@ -400,6 +254,14 @@ export default function EnergyUsageHistoryPage() {
             </button>
           ))}
         </div>
+        
+        {/* Data Count Indicator */}
+        <div className="mt-4 text-sm text-gray-600">
+          Showing <span className="font-semibold text-blue-600">{trendData.length}</span> data points
+          {activeFilter === "Daily" && " (Last 24 hours - hourly)"}
+          {activeFilter === "Weekly" && " (Last 7 days - daily)"}
+          {activeFilter === "Monthly" && " (Last 30 days - daily)"}
+        </div>
       </div>
 
       {/* ================= CHARTS SECTION ================= */}
@@ -408,7 +270,7 @@ export default function EnergyUsageHistoryPage() {
         {/* ===== ENERGY CONSUMPTION TREND (LINE CHART) ===== */}
         <div className="bg-white rounded-2xl p-8 shadow-sm">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">
-            Energy Consumption Trend
+            Energy Consumption Trend ({activeFilter})
           </h2>
 
           {trendData.length > 0 ? (
@@ -421,38 +283,62 @@ export default function EnergyUsageHistoryPage() {
                 />
                 <XAxis
                   dataKey="time"
-                  tick={{ fill: "#6b7280", fontSize: 12 }}
+                  tick={{ fill: "#6b7280", fontSize: 11 }}
                   axisLine={{ stroke: "#e5e7eb" }}
                   tickLine={false}
+                  angle={activeFilter === "Daily" ? -45 : 0}
+                  textAnchor={activeFilter === "Daily" ? "end" : "middle"}
+                  height={activeFilter === "Daily" ? 60 : 30}
+                  interval={activeFilter === "Daily" ? (trendData.length > 12 ? 1 : 0) : 0}
                 />
                 <YAxis
                   tick={{ fill: "#6b7280", fontSize: 12 }}
                   axisLine={false}
                   tickLine={false}
+                  label={{ 
+                    value: 'Energy (kWh)', 
+                    angle: -90, 
+                    position: 'insideLeft',
+                    style: { fill: "#6b7280", fontSize: 12 }
+                  }}
                 />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: "#fff",
                     border: "1px solid #e5e7eb",
                     borderRadius: 8,
-                    padding: "8px 12px",
+                    padding: "12px",
                   }}
                   labelStyle={{ fontWeight: "600", marginBottom: 4 }}
-                  formatter={(value: any) => [`${value} kWh`, "Energy"]}
+                  formatter={(value: any, name: string) => {
+                    if (name === "energy") return [`${value} kWh`, "Energy"];
+                    if (name === "voltage") return [`${value} V`, "Voltage"];
+                    if (name === "current") return [`${value} A`, "Current"];
+                    return [value, name];
+                  }}
                 />
                 <Line
                   type="monotone"
                   dataKey="energy"
                   stroke="#3b82f6"
-                  strokeWidth={3}
-                  dot={false}
+                  strokeWidth={2.5}
+                  dot={activeFilter === "Daily" ? false : { r: 4, fill: "#3b82f6" }}
                   activeDot={{ r: 6, fill: "#3b82f6" }}
+                  name="energy"
                 />
               </LineChart>
             </ResponsiveContainer>
           ) : (
             <div className="h-[350px] flex items-center justify-center text-gray-500">
-              No data available
+              <div className="text-center">
+                <div className="text-4xl mb-2">📊</div>
+                <p className="font-medium">No data available</p>
+                <p className="text-sm mt-1">
+                  {activeFilter === "Daily" && "Check hourly_energy table"}
+                  {activeFilter === "Weekly" && "Check daily_energy table (last 7 days)"}
+                  {activeFilter === "Monthly" && "Check daily_energy table (last 30 days)"}
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -460,7 +346,7 @@ export default function EnergyUsageHistoryPage() {
         {/* ===== DAILY KWH USAGE (BAR CHART) ===== */}
         <div className="bg-white rounded-2xl p-8 shadow-sm">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">
-            Daily kWh Usage
+            Daily kWh Usage (Last 7 Days)
           </h2>
 
           {dailyUsageData.length > 0 ? (
@@ -481,6 +367,12 @@ export default function EnergyUsageHistoryPage() {
                   tick={{ fill: "#6b7280", fontSize: 12 }}
                   axisLine={false}
                   tickLine={false}
+                  label={{ 
+                    value: 'Usage (kWh)', 
+                    angle: -90, 
+                    position: 'insideLeft',
+                    style: { fill: "#6b7280", fontSize: 12 }
+                  }}
                 />
                 <Tooltip
                   contentStyle={{
@@ -502,33 +394,44 @@ export default function EnergyUsageHistoryPage() {
             </ResponsiveContainer>
           ) : (
             <div className="h-[350px] flex items-center justify-center text-gray-500">
-              No data available
+              <div className="text-center">
+                <div className="text-4xl mb-2">📊</div>
+                <p className="font-medium">No weekly data available</p>
+                <p className="text-sm mt-1">Check daily_energy table</p>
+              </div>
             </div>
           )}
         </div>
       </div>
 
       {/* ================= STATISTICS SUMMARY ================= */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-8">
         <StatCard
           title="Total Energy Used"
-          value={(statistics?.total_energy || 0).toFixed(1)}
+          value={statistics.total_energy.toFixed(1)}
           unit="kWh"
           change="+12.5%"
           isPositive={false}
         />
         <StatCard
-          title="Average Usage"
-          value={(statistics?.avg_daily_usage || 0).toFixed(2)}
+          title="Average Daily Usage"
+          value={statistics.avg_daily_usage.toFixed(2)}
           unit="kWh"
           change="+5.2%"
           isPositive={false}
         />
         <StatCard
-          title="Peak Usage Time"
-          value={statistics?.peak_hour || "18:00"}
+          title="Peak Usage"
+          value={statistics.peak_usage.toFixed(2)}
+          unit="kWh"
+          change="Max"
+          isPositive={true}
+        />
+        <StatCard
+          title="Peak Hour"
+          value={statistics.peak_hour}
           unit="Time"
-          change="Consistent"
+          change="Today"
           isPositive={true}
         />
       </div>
@@ -536,7 +439,7 @@ export default function EnergyUsageHistoryPage() {
       {/* ================= DETAILED TABLE ================= */}
       <div className="mt-8 bg-white rounded-2xl p-8 shadow-sm">
         <h2 className="text-2xl font-bold text-gray-900 mb-6">
-          Detailed History
+          Detailed History (Last 7 Days)
         </h2>
         
         <div className="overflow-x-auto">
@@ -560,11 +463,15 @@ export default function EnergyUsageHistoryPage() {
               </thead>
               <tbody>
                 {dailyUsageData.map((item, index) => (
-                  <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
+                  <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition">
                     <td className="py-3 px-4 text-sm text-gray-900">
-                      {item.day}, {new Date(item.date).toLocaleDateString()}
+                      {item.day}, {new Date(item.date).toLocaleDateString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
                     </td>
-                    <td className="py-3 px-4 text-sm text-gray-900">
+                    <td className="py-3 px-4 text-sm font-medium text-gray-900">
                       {item.usage.toFixed(2)}
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-900">
@@ -572,13 +479,13 @@ export default function EnergyUsageHistoryPage() {
                     </td>
                     <td className="py-3 px-4">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        item.usage > 6.5
+                        item.usage > 11
                           ? "bg-red-100 text-red-700"
-                          : item.usage > 5.5
+                          : item.usage > 8.5
                           ? "bg-yellow-100 text-yellow-700"
                           : "bg-green-100 text-green-700"
                       }`}>
-                        {item.usage > 6.5 ? "High" : item.usage > 5.5 ? "Normal" : "Low"}
+                        {item.usage > 11 ? "High" : item.usage > 8.5 ? "Normal" : "Low"}
                       </span>
                     </td>
                   </tr>

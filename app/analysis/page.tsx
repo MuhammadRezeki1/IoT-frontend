@@ -21,7 +21,7 @@ type Suggestion = {
 type PeakData = {
   time: string;
   usage: number;
-  actualTime: Date;
+  timestamp?: Date;
 };
 
 type LoadPatternDay = {
@@ -29,24 +29,7 @@ type LoadPatternDay = {
   morning: number;
   afternoon: number;
   evening: number;
-};
-
-type PowerLog = {
-  id: number;
-  tegangan: number;
-  arus: number;
-  daya_watt: number;
-  energi_kwh: number;
-  frekuensi: number;
-  pf: number;
-  created_at: string;
-};
-
-type DailyStats = {
-  date: string;
-  total_energy: number;
-  avg_energy: number;
-  max_energy?: number;
+  total_energy?: number;
 };
 
 /* ================= MAIN PAGE ================= */
@@ -64,10 +47,11 @@ export default function PowerAnalysisPage() {
     savingsPotential: { value: "$35/mo", description: "With optimizations" },
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const API_URL = "http://localhost:3001";
 
-  /* ===== FETCH DATA DARI BACKEND (HANYA SEKALI) ===== */
+  /* ===== FETCH DATA DARI BACKEND ===== */
   useEffect(() => {
     fetchAllData();
   }, []);
@@ -75,87 +59,91 @@ export default function PowerAnalysisPage() {
   const fetchAllData = async () => {
     try {
       setLoading(true);
+      setError(null);
       
-      // Fetch data untuk Peak Usage (dari 7 data terbaru)
-      await fetchPeakUsageData();
-      
-      // Fetch data untuk Load Pattern (7 hari terakhir)
-      await fetchLoadPatternData();
-      
-      // Fetch statistics
-      await fetchStatistics();
+      // Fetch semua data secara parallel
+      await Promise.all([
+        fetchPeakUsageData(),
+        fetchLoadPatternData(),
+        fetchPowerFactor(),
+        fetchStatistics(),
+      ]);
       
       setLoading(false);
     } catch (error) {
       console.error("Error fetching data:", error);
+      setError("Failed to load analysis data");
       setLoading(false);
     }
   };
 
-  // Fungsi untuk mengambil data Peak Usage (langsung dari 7 data terbaru)
+  // ===== FETCH PEAK USAGE (dari endpoint analysis/peak-usage) =====
   const fetchPeakUsageData = async () => {
     try {
-      const response = await fetch(`${API_URL}/power`);
-      const data: PowerLog[] = await response.json();
-
-      console.log("Peak Usage Raw Data:", data); // Debug
+      console.log('🔍 Fetching peak usage data...');
+      const response = await fetch(`${API_URL}/power/analysis/peak-usage`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('✅ Peak usage data:', data);
 
       if (data.length === 0) {
-        // Jika tidak ada data, gunakan data dummy
+        console.log('⚠️ No peak usage data, using dummy data');
+        // Fallback ke dummy data
         setPeakUsageData([
-          { time: "18:11", usage: 365, actualTime: new Date() },
-          { time: "18:12", usage: 395, actualTime: new Date() },
-          { time: "18:13", usage: 455, actualTime: new Date() },
-          { time: "18:13", usage: 375, actualTime: new Date() },
-          { time: "18:14", usage: 505, actualTime: new Date() },
-          { time: "18:14", usage: 525, actualTime: new Date() },
-          { time: "18:14", usage: 610, actualTime: new Date() },
+          { time: "18:11", usage: 365 },
+          { time: "18:12", usage: 395 },
+          { time: "18:13", usage: 455 },
+          { time: "18:13", usage: 375 },
+          { time: "18:14", usage: 505 },
+          { time: "18:14", usage: 525 },
+          { time: "18:14", usage: 610 },
         ]);
         return;
       }
 
-      // Ambil 7 data terbaru dan format untuk grafik
-      const last7 = data.slice(0, 7);
-      
-      const peakData: PeakData[] = last7.map((log) => {
-        const date = new Date(log.created_at);
-        const hours = date.getHours().toString().padStart(2, '0');
-        const minutes = date.getMinutes().toString().padStart(2, '0');
-        
-        return {
-          time: `${hours}:${minutes}`,
-          usage: log.daya_watt,
-          actualTime: date
-        };
-      });
+      // Format data dari backend
+      const formattedData = data.map((item: any) => ({
+        time: item.time,
+        usage: Math.round(item.usage), // usage sudah dalam Watt
+        timestamp: item.timestamp ? new Date(item.timestamp) : undefined,
+      }));
 
-      console.log("Processed Peak Data:", peakData); // Debug
-
-      setPeakUsageData(peakData);
-
-      // Update power factor dari rata-rata pf
-      const allPF = data.map(log => log.pf);
-      if (allPF.length > 0) {
-        const avgPF = allPF.reduce((a, b) => a + b, 0) / allPF.length;
-        setPowerFactor(Number(avgPF.toFixed(2)));
-      }
-
+      setPeakUsageData(formattedData);
     } catch (error) {
-      console.error("Error fetching peak usage:", error);
+      console.error("❌ Error fetching peak usage:", error);
+      // Set dummy data on error
+      setPeakUsageData([
+        { time: "18:11", usage: 365 },
+        { time: "18:12", usage: 395 },
+        { time: "18:13", usage: 455 },
+        { time: "18:13", usage: 375 },
+        { time: "18:14", usage: 505 },
+        { time: "18:14", usage: 525 },
+        { time: "18:14", usage: 610 },
+      ]);
     }
   };
 
-  // Fungsi untuk mengambil data Load Pattern (7 hari terakhir)
+  // ===== FETCH LOAD PATTERN (dari endpoint analysis/load-pattern) =====
   const fetchLoadPatternData = async () => {
     try {
-      // Ambil 7 data terbaru dari database
-      const response = await fetch(`${API_URL}/power`);
-      const data: PowerLog[] = await response.json();
-
-      console.log("Load Pattern Raw Data:", data); // Debug
+      console.log('🔍 Fetching load pattern data...');
+      const response = await fetch(`${API_URL}/power/analysis/load-pattern`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('✅ Load pattern data:', data);
 
       if (data.length === 0) {
-        // Jika tidak ada data, gunakan data dummy
+        console.log('⚠️ No load pattern data, using dummy data');
+        // Fallback ke dummy data
         setLoadPatternData([
           { day: "Mon", morning: 365, afternoon: 455, evening: 610 },
           { day: "Tue", morning: 395, afternoon: 375, evening: 525 },
@@ -168,70 +156,65 @@ export default function PowerAnalysisPage() {
         return;
       }
 
-      // Ambil 7 data terbaru
-      const last7 = data.slice(0, 7);
-      
-      // Dapatkan hari dari data pertama (paling baru)
-      const latestDate = new Date(last7[0].created_at);
-      
-      // Generate 7 hari mundur dari hari terbaru
-      const loadPattern: LoadPatternDay[] = [];
-      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      
-      for (let i = 6; i >= 0; i--) {
-        const targetDate = new Date(latestDate);
-        targetDate.setDate(targetDate.getDate() - i);
-        const dayName = dayNames[targetDate.getDay()];
-        
-        // Gunakan data dari array last7
-        // Distribusikan 7 data ke 7 hari (1 data per hari, tapi dibagi ke 3 periode)
-        const dataIndex = 6 - i; // index dari 0 sampai 6
-        
-        if (dataIndex < last7.length) {
-          const baseWatt = last7[dataIndex].daya_watt;
-          
-          // Buat variasi untuk morning, afternoon, evening berdasarkan data real
-          // Morning: -10% sampai -20% dari base
-          // Afternoon: base value atau sedikit lebih tinggi
-          // Evening: +5% sampai +15% dari base (biasanya paling tinggi)
-          
-          const morningVariation = 0.80 + (Math.random() * 0.10); // 80-90%
-          const afternoonVariation = 0.95 + (Math.random() * 0.10); // 95-105%
-          const eveningVariation = 1.05 + (Math.random() * 0.10); // 105-115%
-          
-          loadPattern.push({
-            day: dayName,
-            morning: Math.round(baseWatt * morningVariation),
-            afternoon: Math.round(baseWatt * afternoonVariation),
-            evening: Math.round(baseWatt * eveningVariation),
-          });
-        } else {
-          // Jika data kurang dari 7, gunakan rata-rata
-          const avgWatt = last7.reduce((sum, log) => sum + log.daya_watt, 0) / last7.length;
-          
-          loadPattern.push({
-            day: dayName,
-            morning: Math.round(avgWatt * 0.85),
-            afternoon: Math.round(avgWatt * 1.0),
-            evening: Math.round(avgWatt * 1.10),
-          });
-        }
-      }
+      // Format data dari backend
+      const formattedData = data.map((item: any) => ({
+        day: item.day,
+        morning: Math.round(item.morning),
+        afternoon: Math.round(item.afternoon),
+        evening: Math.round(item.evening),
+        total_energy: item.total_energy,
+      }));
 
-      console.log("Load Pattern Processed Data:", loadPattern); // Debug
-
-      setLoadPatternData(loadPattern);
-
+      setLoadPatternData(formattedData);
     } catch (error) {
-      console.error("Error fetching load pattern:", error);
+      console.error("❌ Error fetching load pattern:", error);
+      // Set dummy data on error
+      setLoadPatternData([
+        { day: "Mon", morning: 365, afternoon: 455, evening: 610 },
+        { day: "Tue", morning: 395, afternoon: 375, evening: 525 },
+        { day: "Wed", morning: 365, afternoon: 505, evening: 455 },
+        { day: "Thu", morning: 455, afternoon: 610, evening: 395 },
+        { day: "Fri", morning: 375, afternoon: 525, evening: 505 },
+        { day: "Sat", morning: 505, afternoon: 365, evening: 610 },
+        { day: "Sun", morning: 525, afternoon: 395, evening: 455 },
+      ]);
     }
   };
 
-  // Fungsi untuk mengambil statistics
+  // ===== FETCH POWER FACTOR (dari endpoint analysis/power-factor) =====
+  const fetchPowerFactor = async () => {
+    try {
+      console.log('🔍 Fetching power factor...');
+      const response = await fetch(`${API_URL}/power/analysis/power-factor`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('✅ Power factor:', data);
+
+      if (data && data.power_factor) {
+        setPowerFactor(parseFloat(data.power_factor.toFixed(2)));
+      }
+    } catch (error) {
+      console.error("❌ Error fetching power factor:", error);
+      // Keep default 0.95
+    }
+  };
+
+  // ===== FETCH STATISTICS (dari endpoint statistics) =====
   const fetchStatistics = async () => {
     try {
+      console.log('🔍 Fetching statistics...');
       const response = await fetch(`${API_URL}/power/statistics?days=30`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
+      console.log('✅ Statistics:', data);
 
       setStatistics({
         peakHours: {
@@ -247,9 +230,9 @@ export default function PowerAnalysisPage() {
           description: "With optimizations",
         },
       });
-
     } catch (error) {
-      console.error("Error fetching statistics:", error);
+      console.error("❌ Error fetching statistics:", error);
+      // Keep default values
     }
   };
 
@@ -284,12 +267,32 @@ export default function PowerAnalysisPage() {
     },
   ];
 
+  // Loading state
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-xl text-gray-600">Loading power analysis...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center bg-white p-8 rounded-2xl shadow-sm max-w-md">
+          <div className="text-red-500 text-5xl mb-4">⚠️</div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Error Loading Data</h2>
+          <p className="text-gray-600 mb-4">{error}</p>
+          <button
+            onClick={fetchAllData}
+            className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -348,7 +351,7 @@ export default function PowerAnalysisPage() {
               {/* Grid Lines */}
               {[250, 200, 150, 100, 50].map((y, i) => (
                 <line
-                  key={y}
+                  key={`peak-grid-${y}-${i}`}
                   x1="40"
                   y1={y}
                   x2="380"
@@ -375,16 +378,16 @@ export default function PowerAnalysisPage() {
                 </linearGradient>
               </defs>
 
-              {/* Dynamic Area & Line based on real 7 data */}
+              {/* Dynamic Area & Line based on real data */}
               {peakUsageData.length > 0 && (
                 <>
                   {/* Area Path */}
                   <path
                     d={`M ${peakUsageData.map((p, i) => {
                       const x = 40 + (i * 300 / (peakUsageData.length - 1));
-                      const y = 250 - (p.usage / 800 * 200); // Scale: 0-800W -> 0-200px
+                      const y = 250 - (p.usage / 800 * 200);
                       return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-                    }).join(' ')} L ${340} 250 L 40 250 Z`}
+                    }).join(' ')} L ${40 + (300 / (peakUsageData.length - 1)) * (peakUsageData.length - 1)} 250 L 40 250 Z`}
                     fill="url(#areaGradient)"
                     className="animate-drawArea"
                   />
@@ -411,7 +414,7 @@ export default function PowerAnalysisPage() {
                     const x = 40 + (i * 300 / (peakUsageData.length - 1));
                     const y = 250 - (point.usage / 800 * 200);
                     return (
-                      <g key={i}>
+                      <g key={`peak-point-${i}`}>
                         <circle
                           cx={x}
                           cy={y}
@@ -437,11 +440,11 @@ export default function PowerAnalysisPage() {
                 </>
               )}
 
-              {/* X-axis labels - show time for each point */}
+              {/* X-axis labels */}
               {peakUsageData.map((p, i) => {
                 const x = 40 + (i * 300 / (peakUsageData.length - 1));
                 return (
-                  <text key={i} x={x - 12} y="275" fontSize="10" fill="#9ca3af">
+                  <text key={`peak-label-${i}`} x={x - 12} y="275" fontSize="10" fill="#9ca3af">
                     {p.time}
                   </text>
                 );
@@ -468,7 +471,7 @@ export default function PowerAnalysisPage() {
               {/* Grid Lines */}
               {[250, 187, 125, 62].map((y, i) => (
                 <line
-                  key={y}
+                  key={`load-grid-${y}-${i}`}
                   x1="40"
                   y1={y}
                   x2="380"
@@ -499,7 +502,7 @@ export default function PowerAnalysisPage() {
 
                 return (
                   <g
-                    key={day.day}
+                    key={`bar-group-${index}`}
                     onMouseEnter={() => setHoveredBar(day)}
                     onMouseLeave={() => setHoveredBar(null)}
                     className="cursor-pointer"
