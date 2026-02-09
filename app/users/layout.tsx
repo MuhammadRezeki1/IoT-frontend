@@ -85,7 +85,7 @@ export default function UserManagementLayout({
                 <ChevronLeft size={20} className="rotate-180 text-gray-600" />
               </button>
             )}
-            <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
+            <h2 className="text-2xl font-bold text-gray-900">User Management</h2>
           </div>
 
           <div className="ml-6 flex-1 max-w-md">

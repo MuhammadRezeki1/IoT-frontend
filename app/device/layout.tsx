@@ -14,12 +14,12 @@ import {
   Users,
   Settings,
   ChevronLeft,
-  User,
-  LogOut,
-  AlertTriangle,
   CheckCircle,
+  AlertTriangle,
   Info,
   X,
+  User,
+  LogOut,
   ChevronDown,
 } from "lucide-react";
 
@@ -44,7 +44,7 @@ type Notification = {
   read: boolean;
 };
 
-export default function DeviceLayout({
+export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -65,11 +65,8 @@ export default function DeviceLayout({
             open ? "opacity-100" : "opacity-0"
           }`}
         >
-          {/* HEADER */}
           <div className="flex h-20 items-center justify-between px-6 border-b border-gray-200">
-            <h1 className="text-xl font-bold text-blue-600">
-              Energy Monitor
-            </h1>
+            <h1 className="text-xl font-bold text-blue-600">Energy Monitor</h1>
             <button
               onClick={() => setOpen(false)}
               className="p-2 hover:bg-gray-100 rounded-lg transition"
@@ -78,27 +75,24 @@ export default function DeviceLayout({
               <ChevronLeft size={20} className="text-gray-600" />
             </button>
           </div>
-
-          {/* NAVIGATION MENU */}
           <nav className="px-3 py-6 space-y-2 overflow-y-auto h-[calc(100vh-80px)]">
             {menus.map((menu) => {
               const isActive = pathname === menu.href;
               const Icon = menu.icon;
-
               return (
                 <Link
                   key={menu.name}
                   href={menu.href}
-                  className={`
-                    flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
-                    ${
-                      isActive
-                        ? "bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-md"
-                        : "text-gray-700 hover:bg-gray-100"
-                    }
-                  `}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
+                    isActive
+                      ? "bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-md"
+                      : "text-gray-700 hover:bg-gray-100"
+                  }`}
                 >
-                  <Icon size={20} className={isActive ? "text-white" : "text-gray-600"} />
+                  <Icon
+                    size={20}
+                    className={isActive ? "text-white" : "text-gray-600"}
+                  />
                   <span className="text-sm font-medium">{menu.name}</span>
                 </Link>
               );
@@ -111,7 +105,6 @@ export default function DeviceLayout({
       <div className="flex flex-1 flex-col">
         {/* ================= TOPBAR ================= */}
         <header className="flex h-20 items-center bg-white px-6 shadow-sm border-b border-gray-200">
-          {/* LEFT SECTION - Toggle button when sidebar is closed */}
           <div className="flex items-center gap-4">
             {!open && (
               <button
@@ -122,11 +115,11 @@ export default function DeviceLayout({
                 <ChevronLeft size={20} className="rotate-180 text-gray-600" />
               </button>
             )}
-            
-            <h2 className="text-2xl font-bold text-gray-900">Device & Relay Control</h2>
+            <h2 className="text-2xl font-bold text-gray-900">
+              {menus.find((m) => m.href === pathname)?.name || "Dashboard"}
+            </h2>
           </div>
 
-          {/* SEARCH BAR */}
           <div className="ml-6 flex-1 max-w-md">
             <div className="relative">
               <input
@@ -150,23 +143,20 @@ export default function DeviceLayout({
             </div>
           </div>
 
-          {/* RIGHT SECTION */}
           <div className="ml-auto flex items-center gap-4">
             <NotificationDropdown />
             <ProfileDropdown />
           </div>
         </header>
 
-        {/* ================= CONTENT ================= */}
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
+        {/* ================= PAGE CONTENT ================= */}
+        <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
   );
 }
 
-// ================= NOTIFICATION DROPDOWN COMPONENT =================
+/* ================= NOTIFICATION DROPDOWN ================= */
 function NotificationDropdown() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -207,30 +197,28 @@ function NotificationDropdown() {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      )
         setIsOpen(false);
-      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const markAsRead = (id: string) => {
+  const markAsRead = (id: string) =>
     setNotifications((prev) =>
       prev.map((notif) => (notif.id === id ? { ...notif, read: true } : notif))
     );
-  };
 
-  const markAllAsRead = () => {
+  const markAllAsRead = () =>
     setNotifications((prev) => prev.map((notif) => ({ ...notif, read: true })));
-  };
 
-  const deleteNotification = (id: string) => {
+  const deleteNotification = (id: string) =>
     setNotifications((prev) => prev.filter((notif) => notif.id !== id));
-  };
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -347,28 +335,25 @@ function NotificationDropdown() {
   );
 }
 
-// ================= PROFILE DROPDOWN COMPONENT =================
+/* ================= PROFILE DROPDOWN ================= */
 function ProfileDropdown() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      )
         setIsOpen(false);
-      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleLogout = () => {
-    // Handle logout logic here
-    console.log("Logging out...");
-    router.push("/");
-  };
+  const handleLogout = () => router.push("/");
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -399,8 +384,12 @@ function ProfileDropdown() {
                 U
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-gray-900 truncate">Admin User</p>
-                <p className="text-xs text-gray-500 truncate">admin@example.com</p>
+                <p className="text-sm font-bold text-gray-900 truncate">
+                  Admin User
+                </p>
+                <p className="text-xs text-gray-500 truncate">
+                  admin@example.com
+                </p>
               </div>
             </div>
           </div>
@@ -408,7 +397,9 @@ function ProfileDropdown() {
           <div className="py-2">
             <button className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors text-left">
               <User size={18} className="text-gray-600" />
-              <span className="text-sm text-gray-700 font-medium">My Profile</span>
+              <span className="text-sm text-gray-700 font-medium">
+                My Profile
+              </span>
             </button>
             <button
               onClick={() => {
@@ -427,7 +418,10 @@ function ProfileDropdown() {
               onClick={handleLogout}
               className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-red-50 transition-colors text-left group"
             >
-              <LogOut size={18} className="text-gray-600 group-hover:text-red-600" />
+              <LogOut
+                size={18}
+                className="text-gray-600 group-hover:text-red-600"
+              />
               <span className="text-sm text-gray-700 font-medium group-hover:text-red-600">
                 Logout
               </span>

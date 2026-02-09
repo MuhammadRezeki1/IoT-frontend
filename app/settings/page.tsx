@@ -3,9 +3,6 @@
 import { useState } from "react";
 import {
   Save,
-  Settings as SettingsIcon,
-  Bell,
-  Monitor,
   RefreshCw,
   CheckCircle,
 } from "lucide-react";
@@ -17,7 +14,6 @@ type TabType = "general" | "device" | "notifications" | "system";
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabType>("general");
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
-  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
 
   /* ===== GENERAL SETTINGS STATE ===== */
   const [homeName, setHomeName] = useState("My Smart Home");
@@ -40,14 +36,6 @@ export default function SettingsPage() {
     }, 3000);
   };
 
-  /* ===== HANDLE RESTART SYSTEM ===== */
-  const handleRestartSystem = () => {
-    setShowRestartConfirm(true);
-    setTimeout(() => {
-      setShowRestartConfirm(false);
-    }, 3000);
-  };
-
   /* ===== TAB BUTTONS ===== */
   const tabs = [
     { id: "general" as TabType, label: "General" },
@@ -57,13 +45,7 @@ export default function SettingsPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      {/* ================= HEADER ================= */}
-      <div className="mb-8 animate-fadeIn">
-        <h1 className="text-4xl font-bold text-gray-900">Settings</h1>
-        <p className="text-gray-600 mt-2">Configure system preferences</p>
-      </div>
-
+    <div className="p-8">
       {/* ================= TABS NAVIGATION ================= */}
       <div className="mb-8 animate-slideDown" style={{ animationDelay: "0.1s" }}>
         <div className="flex gap-4 bg-white p-2 rounded-2xl shadow-sm">
@@ -275,7 +257,7 @@ export default function SettingsPage() {
               <label className="block text-sm text-gray-600 mb-2">
                 Last Update
               </label>
-              <p className="text-2xl font-bold text-gray-900">March 15, 2024</p>
+              <p className="text-2xl font-bold text-gray-900">February 7, 2025</p>
             </div>
 
             {/* SYSTEM UPTIME */}
@@ -286,19 +268,11 @@ export default function SettingsPage() {
               <p className="text-2xl font-bold text-gray-900">15 days, 7 hours</p>
             </div>
 
-            {/* ACTION BUTTONS */}
+            {/* ACTION BUTTON - HANYA CHECK FOR UPDATES */}
             <div className="flex gap-4">
-              <button className="flex items-center gap-2 bg-white border-2 border-gray-300 text-gray-700 px-6 py-3 rounded-xl font-semibold hover:bg-gray-50 transition-all duration-300">
+              <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 hover:shadow-lg">
                 <RefreshCw size={20} />
                 Check for Updates
-              </button>
-
-              <button
-                onClick={handleRestartSystem}
-                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 hover:shadow-lg"
-              >
-                <RefreshCw size={20} />
-                Restart System
               </button>
             </div>
           </div>
@@ -312,17 +286,6 @@ export default function SettingsPage() {
           <div>
             <p className="font-bold">Changes Saved!</p>
             <p className="text-sm">Your settings have been updated successfully</p>
-          </div>
-        </div>
-      )}
-
-      {/* ================= RESTART CONFIRMATION ================= */}
-      {showRestartConfirm && (
-        <div className="fixed top-8 right-8 bg-orange-500 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-slideInRight z-50">
-          <RefreshCw size={24} className="animate-spin" />
-          <div>
-            <p className="font-bold">Restarting System...</p>
-            <p className="text-sm">Please wait while the system reboots</p>
           </div>
         </div>
       )}

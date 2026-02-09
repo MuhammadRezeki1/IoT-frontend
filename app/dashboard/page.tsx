@@ -8,12 +8,9 @@ import {
   Battery,
   Radio,
   TrendingUp,
-  Power,
   CheckCircle,
   AlertTriangle,
   Info,
-  Leaf,
-  DollarSign,
 } from "lucide-react";
 
 import {
@@ -58,14 +55,8 @@ export default function DashboardPage() {
   
   // UI states
   const [lastUpdated, setLastUpdated] = useState<string>("");
-  const [relayStatus, setRelayStatus] = useState<boolean>(true);
   const [systemOnline, setSystemOnline] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(true);
-
-  /* ===== SYNC RELAY STATUS WITH SYSTEM ONLINE ===== */
-  useEffect(() => {
-    setSystemOnline(relayStatus);
-  }, [relayStatus]);
 
   /* ===== FETCH 7 DATA TERAKHIR DARI DATABASE ===== */
   useEffect(() => {
@@ -96,10 +87,12 @@ export default function DashboardPage() {
 
           setChartData(mapped);
           setLastUpdated(new Date().toLocaleTimeString("id-ID"));
+          setSystemOnline(true);
           setLoading(false);
         }
       } catch (e) {
         console.error("Failed to fetch 7 data", e);
+        setSystemOnline(false);
         setLoading(false);
       }
     };
@@ -109,25 +102,6 @@ export default function DashboardPage() {
     const interval = setInterval(fetch7Data, 10000);
     return () => clearInterval(interval);
   }, []);
-
-  /* ===== RELAY TOGGLE HANDLER ===== */
-  const handleRelayToggle = async () => {
-    const newStatus = !relayStatus;
-    
-    try {
-      // Optional: Send to API
-      // await fetch('http://localhost:3001/relay', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ status: newStatus })
-      // });
-      
-      setRelayStatus(newStatus);
-      setSystemOnline(newStatus);
-    } catch (error) {
-      console.error('Failed to toggle relay', error);
-    }
-  };
 
   // Loading state
   if (loading || last7Data.length === 0) {
@@ -397,64 +371,11 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* ================= ADDITIONAL FEATURES ================= */}
-      <section className="mt-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* ================= ADDITIONAL FEATURES (TANPA RELAY CONTROL) ================= */}
+      <section className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6">
         
-        {/* ===== CARD 1 - RELAY CONTROL ===== */}
-        <div className="relative rounded-3xl border border-gray-200 bg-white p-8 shadow-sm hover:shadow-xl transition-all duration-300 animate-scaleIn" style={{ animationDelay: '0.1s' }}>
-          <div className="absolute top-6 right-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-green-100 text-green-600">
-            <Power size={24} />
-          </div>
-
-          <h3 className="text-3xl font-bold mb-2">Relay Control</h3>
-          <p className="text-gray-600 mb-8">Main power relay switch</p>
-
-          {/* Power Status Box */}
-          <div className="relative bg-gray-100 rounded-2xl p-6 mb-8">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xl font-bold mb-2">Power Status</p>
-                <p className="text-gray-600">
-                  System is {relayStatus ? 'active' : 'inactive'}
-                </p>
-              </div>
-              
-              {/* Toggle Switch */}
-              <button
-                onClick={handleRelayToggle}
-                className={`relative w-14 h-8 rounded-full transition-all duration-300 ${
-                  relayStatus ? 'bg-green-500' : 'bg-gray-400'
-                }`}
-                aria-label="Toggle relay"
-              >
-                <span
-                  className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${
-                    relayStatus ? 'translate-x-6' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-
-          {/* Status Badge */}
-          <span 
-            className={`inline-flex items-center gap-2 rounded-full px-5 py-3 font-bold transition-all duration-300 ${
-              relayStatus 
-                ? 'bg-green-100 text-green-600' 
-                : 'bg-red-100 text-red-600'
-            }`}
-          >
-            <span 
-              className={`h-3 w-3 rounded-full ${
-                relayStatus ? 'bg-green-600 animate-pulse' : 'bg-red-600'
-              }`} 
-            />
-            {relayStatus ? 'ON' : 'OFF'}
-          </span>
-        </div>
-
-        {/* ===== CARD 2 - SYSTEM ALERTS ===== */}
-        <div className="rounded-3xl border border-gray-200 bg-white p-8 shadow-sm hover:shadow-xl transition-all duration-300 animate-scaleIn" style={{ animationDelay: '0.2s' }}>
+        {/* ===== CARD 1 - SYSTEM ALERTS ===== */}
+        <div className="rounded-3xl border border-gray-200 bg-white p-8 shadow-sm hover:shadow-xl transition-all duration-300 animate-scaleIn" style={{ animationDelay: '0.1s' }}>
           <h3 className="text-3xl font-bold mb-2">System Alerts</h3>
           <p className="text-gray-600 mb-6">Recent notifications and warnings</p>
 
@@ -488,8 +409,8 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ===== CARD 3 - STATISTICS FROM 7 DATA ===== */}
-        <div className="relative rounded-3xl border border-gray-200 bg-white p-8 shadow-sm hover:shadow-xl transition-all duration-300 animate-scaleIn" style={{ animationDelay: '0.3s' }}>
+        {/* ===== CARD 2 - STATISTICS FROM 7 DATA ===== */}
+        <div className="relative rounded-3xl border border-gray-200 bg-white p-8 shadow-sm hover:shadow-xl transition-all duration-300 animate-scaleIn" style={{ animationDelay: '0.2s' }}>
           <div className="absolute top-6 right-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-blue-600">
             <TrendingUp size={24} />
           </div>
