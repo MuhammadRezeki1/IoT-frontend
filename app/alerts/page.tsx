@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { getApiUrl, apiConfig, ApiResponse } from "@/lib/api-config";
 
 interface Alert {
   id: number;
@@ -49,13 +50,23 @@ export default function AlertsPage() {
 
   const fetchAlerts = async () => {
     try {
-      const res = await fetch('http://localhost:3001/power/alerts');
-      const json = await res.json();
-      if (json.success) {
+      console.log('📡 [Alerts] Fetching from:', getApiUrl(apiConfig.endpoints.alerts));
+      
+      const res = await fetch(getApiUrl(apiConfig.endpoints.alerts));
+      
+      if (!res.ok) {
+        console.error('❌ [Alerts] HTTP error:', res.status);
+        return;
+      }
+      
+      const json: ApiResponse<Alert[]> = await res.json();
+      console.log('✅ [Alerts] Response:', json);
+      
+      if (json.success && json.data) {
         setAlerts(json.data);
       }
     } catch (error) {
-      console.error('Error fetching alerts:', error);
+      console.error('❌ [Alerts] Error fetching alerts:', error);
     } finally {
       setLoading(false);
     }
@@ -63,13 +74,23 @@ export default function AlertsPage() {
 
   const fetchSummary = async () => {
     try {
-      const res = await fetch('http://localhost:3001/power/alerts/summary');
-      const json = await res.json();
-      if (json.success) {
+      console.log('📡 [Summary] Fetching from:', getApiUrl(apiConfig.endpoints.alertsSummary));
+      
+      const res = await fetch(getApiUrl(apiConfig.endpoints.alertsSummary));
+      
+      if (!res.ok) {
+        console.error('❌ [Summary] HTTP error:', res.status);
+        return;
+      }
+      
+      const json: ApiResponse<AlertSummary> = await res.json();
+      console.log('✅ [Summary] Response:', json);
+      
+      if (json.success && json.data) {
         setSummary(json.data);
       }
     } catch (error) {
-      console.error('Error fetching summary:', error);
+      console.error('❌ [Summary] Error fetching summary:', error);
     }
   };
 
@@ -128,7 +149,7 @@ export default function AlertsPage() {
         animate={{ opacity: 1, y: 0 }}
       >
         <h1 className="text-4xl font-bold text-gray-900">Alerts & Notifications</h1>
-        <p className="text-gray-600 mt-2">Monitoring dari 10 hari terakhir data harian</p>
+        <p className="text-gray-600 mt-2">System alerts and monitoring notifications</p>
       </motion.div>
 
       {/* Summary Cards */}
@@ -187,6 +208,9 @@ export default function AlertsPage() {
         {filteredAlerts.length === 0 ? (
           <div className="bg-white rounded-2xl p-12 text-center">
             <p className="text-gray-500 text-lg">Tidak ada alerts untuk kategori ini</p>
+            <p className="text-sm text-gray-400 mt-2">
+              Data akan muncul setelah sistem mendeteksi anomali
+            </p>
           </div>
         ) : (
           filteredAlerts.map((alert, index) => (
@@ -233,6 +257,7 @@ export default function AlertsPage() {
           ))
         )}
       </motion.div>
+
     </div>
   );
 }

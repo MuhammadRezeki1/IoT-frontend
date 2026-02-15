@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Zap, DollarSign, TrendingUp, Download, FileText, Calendar } from "lucide-react";
 import { motion } from "framer-motion";
+import { getApiUrl, apiConfig } from "@/lib/api-config";
 
 /* ================= TYPES ================= */
 type MonthlyReport = {
@@ -81,37 +82,39 @@ export default function ReportsPage() {
         
         // 1. Fetch ALL monthly reports dari monthly_energy table
         try {
-          console.log('📡 Fetching monthly reports from /power/reports/monthly');
-          const reportsRes = await fetch("http://localhost:3001/power/reports/monthly");
+          console.log('📡 [Reports] Fetching monthly reports from:', getApiUrl(apiConfig.endpoints.reportsMonthly));
+          
+          const reportsRes = await fetch(getApiUrl(apiConfig.endpoints.reportsMonthly));
           
           if (reportsRes.ok) {
             const reportsData: ApiResponseMonthly = await reportsRes.json();
-            console.log('✅ Monthly reports response:', reportsData);
+            console.log('✅ [Reports] Monthly reports response:', reportsData);
             
             if (reportsData.success && Array.isArray(reportsData.data)) {
               setMonthlyReports(reportsData.data);
-              console.log(`📊 Loaded ${reportsData.data.length} monthly reports`);
+              console.log(`📊 [Reports] Loaded ${reportsData.data.length} monthly reports`);
             } else {
-              console.warn('⚠️ Monthly reports is not an array, using empty array');
+              console.warn('⚠️ [Reports] Monthly reports is not an array, using empty array');
               setMonthlyReports([]);
             }
           } else {
-            console.error('❌ Failed to fetch monthly reports:', reportsRes.status);
+            console.error('❌ [Reports] Failed to fetch monthly reports:', reportsRes.status);
             setMonthlyReports([]);
           }
         } catch (error) {
-          console.error("❌ Error fetching monthly reports:", error);
+          console.error("❌ [Reports] Error fetching monthly reports:", error);
           setMonthlyReports([]);
         }
 
         // 2. Fetch current month report
         try {
-          console.log('📡 Fetching current month from /power/reports/current-month');
-          const currentRes = await fetch("http://localhost:3001/power/reports/current-month");
+          console.log('📡 [Reports] Fetching current month from:', getApiUrl(apiConfig.endpoints.reportsCurrentMonth));
+          
+          const currentRes = await fetch(getApiUrl(apiConfig.endpoints.reportsCurrentMonth));
           
           if (currentRes.ok) {
             const currentData: ApiResponseCurrent = await currentRes.json();
-            console.log('✅ Current month response:', currentData);
+            console.log('✅ [Reports] Current month response:', currentData);
             
             if (currentData.success && currentData.data) {
               setCurrentMonth(currentData.data);
@@ -126,7 +129,7 @@ export default function ReportsPage() {
               });
             }
           } else {
-            console.error('❌ Failed to fetch current month:', currentRes.status);
+            console.error('❌ [Reports] Failed to fetch current month:', currentRes.status);
             const now = new Date();
             setCurrentMonth({
               month: now.getMonth() + 1,
@@ -137,7 +140,7 @@ export default function ReportsPage() {
             });
           }
         } catch (error) {
-          console.error("❌ Error fetching current month:", error);
+          console.error("❌ [Reports] Error fetching current month:", error);
           const now = new Date();
           setCurrentMonth({
             month: now.getMonth() + 1,
@@ -150,12 +153,13 @@ export default function ReportsPage() {
 
         // 3. Fetch statistics (all data)
         try {
-          console.log('📡 Fetching statistics from /power/statistics');
-          const statsRes = await fetch("http://localhost:3001/power/statistics");
+          console.log('📡 [Reports] Fetching statistics from:', getApiUrl(apiConfig.endpoints.statistics));
+          
+          const statsRes = await fetch(getApiUrl(apiConfig.endpoints.statistics));
           
           if (statsRes.ok) {
             const statsData: ApiResponseStats = await statsRes.json();
-            console.log('✅ Statistics response:', statsData);
+            console.log('✅ [Reports] Statistics response:', statsData);
             
             if (statsData.success && statsData.data) {
               setStatistics(statsData.data);
@@ -169,7 +173,7 @@ export default function ReportsPage() {
               });
             }
           } else {
-            console.error('❌ Failed to fetch statistics:', statsRes.status);
+            console.error('❌ [Reports] Failed to fetch statistics:', statsRes.status);
             setStatistics({
               total_energy: 0,
               avg_daily_usage: 0,
@@ -179,7 +183,7 @@ export default function ReportsPage() {
             });
           }
         } catch (error) {
-          console.error("❌ Error fetching statistics:", error);
+          console.error("❌ [Reports] Error fetching statistics:", error);
           setStatistics({
             total_energy: 0,
             avg_daily_usage: 0,
@@ -191,7 +195,7 @@ export default function ReportsPage() {
 
         setLoading(false);
       } catch (error) {
-        console.error("❌ Failed to fetch reports data:", error);
+        console.error("❌ [Reports] Failed to fetch reports data:", error);
         setLoading(false);
       }
     };
@@ -334,9 +338,8 @@ Dalam produksi, ini akan menghasilkan PDF profesional.`);
       >
         <div>
           <h1 className="text-4xl font-bold text-gray-900">Laporan Bulanan</h1>
-          <p className="text-gray-600 mt-2">Laporan konsumsi listrik bulanan dari database</p>
-          <p className="text-sm text-gray-500 mt-1">
-            {monthlyReports.length} bulan data historis tersedia dari table monthly_energy
+          <p className="text-gray-600 mt-2">
+            {monthlyReports.length} bulan data historis tersedia
           </p>
         </div>
 
@@ -470,7 +473,7 @@ Dalam produksi, ini akan menghasilkan PDF profesional.`);
         className="bg-white rounded-3xl p-8 shadow-sm"
       >
         <h2 className="text-3xl font-bold text-gray-900 mb-6">
-          Data Historis Bulanan (monthly_energy table)
+          Data Historis Bulanan
         </h2>
 
         <div className="overflow-x-auto">
@@ -530,19 +533,6 @@ Dalam produksi, ini akan menghasilkan PDF profesional.`);
         </div>
       </motion.div>
 
-      {/* DATA SOURCE INFO */}
-      <div className="mt-8 bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-center gap-3">
-        <div className="text-blue-600 text-2xl">ℹ️</div>
-        <div className="flex-1">
-          <p className="text-sm text-blue-900 font-medium">
-            Sumber Data: PostgreSQL - Table monthly_energy
-          </p>
-          <p className="text-xs text-blue-700 mt-1">
-            Tarif: Rp {ELECTRICITY_RATES.R1_2200VA.toLocaleString('id-ID')}/kWh (R1 2200VA - Subsidi PLN) | 
-            Kurs: Rp {USD_TO_IDR.toLocaleString('id-ID')}/USD
-          </p>
-        </div>
-      </div>
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   CartesianGrid,
   ResponsiveContainer,
 } from "recharts";
+import { getApiUrl, apiConfig } from "@/lib/api-config";
 
 /* ================= TYPES ================= */
 type RawPowerData = {
@@ -29,7 +30,6 @@ type LiveChartData = {
   power: number;
 };
 
-// ✅ NEW: API Response Type
 type ApiResponse = {
   success: boolean;
   data: RawPowerData[];
@@ -46,20 +46,20 @@ export default function RealtimeMonitoringPage() {
   useEffect(() => {
     const fetch7Data = async () => {
       try {
-        console.log('📡 Fetching 7 latest data from hourly_energy table...');
+        const apiUrl = getApiUrl(apiConfig.endpoints.last7Data);
         
-        const res = await fetch("http://localhost:3001/power/last7");
+        console.log('📡 Fetching from:', apiUrl);
+        
+        const res = await fetch(apiUrl);
         
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
         }
 
-        // ✅ FIX: Parse the new response structure
         const json: ApiResponse = await res.json();
         
         console.log('✅ API Response:', json);
         
-        // ✅ FIX: Extract data array from response object
         if (json.success && json.data && json.data.length > 0) {
           console.log(`✅ Received ${json.data.length} records from hourly_energy`);
           setLast7Data(json.data);
@@ -103,8 +103,7 @@ export default function RealtimeMonitoringPage() {
             animate={{ rotate: 360 }}
             transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
           />
-          <p className="text-gray-600">Loading 7 latest records from hourly_energy...</p>
-          <p className="text-gray-400 text-sm mt-2">Connecting to database...</p>
+          <p className="text-gray-600">Loading latest records...</p>
         </div>
       </div>
     );
@@ -113,7 +112,6 @@ export default function RealtimeMonitoringPage() {
   // Current data being displayed
   const currentData = last7Data[currentIndex];
 
-  // ✅ FIX: Safely convert data to numbers
   const chartData: LiveChartData[] = last7Data.map((item) => ({
     time: new Date(item.created_at).toLocaleTimeString("id-ID", {
       hour: "2-digit",
@@ -135,7 +133,7 @@ export default function RealtimeMonitoringPage() {
             Real-time Monitoring
           </h1>
           <p className="text-gray-600 mt-2">
-            Live data from <span className="font-semibold text-blue-600">hourly_energy</span> table
+            Live power consumption data
           </p>
         </div>
 
@@ -162,24 +160,6 @@ export default function RealtimeMonitoringPage() {
             {isLive ? "Live Streaming" : "Disconnected"}
           </span>
         </motion.div>
-      </motion.div>
-
-      {/* ================= DATA INFO BADGE ================= */}
-      <motion.div 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-4 flex items-center gap-3"
-      >
-        <div className="text-blue-600 text-3xl">🔄</div>
-        <div className="flex-1">
-          <p className="text-sm text-blue-900 font-bold">
-            Displaying Record {currentIndex + 1} of {last7Data.length}
-          </p>
-          <p className="text-xs text-blue-700 mt-1">
-            Auto-cycling every 3 seconds | Database refresh every 5 seconds | 
-            Current: {new Date(currentData.created_at).toLocaleString("id-ID")}
-          </p>
-        </div>
       </motion.div>
 
       {/* ================= GAUGE CARDS ================= */}
@@ -259,7 +239,7 @@ export default function RealtimeMonitoringPage() {
               transition={{ duration: 2, repeat: Infinity }}
               className="h-2 w-2 bg-blue-500 rounded-full"
             />
-            <span>Last 7 records from hourly_energy</span>
+            <span>Last 7 records</span>
           </div>
         </div>
 
@@ -344,7 +324,7 @@ export default function RealtimeMonitoringPage() {
         transition={{ delay: 0.4 }}
         className="bg-white rounded-3xl p-8 shadow-lg overflow-hidden"
       >
-        <h2 className="text-2xl font-bold mb-6">Latest 7 Records from Database</h2>
+        <h2 className="text-2xl font-bold mb-6">Latest Records from Database</h2>
         
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -404,23 +384,6 @@ export default function RealtimeMonitoringPage() {
         </div>
       </motion.div>
 
-      {/* ================= DATA SOURCE INFO ================= */}
-      <motion.div 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.6 }}
-        className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center gap-3"
-      >
-        <div className="text-green-600 text-2xl">✅</div>
-        <div className="flex-1">
-          <p className="text-sm text-green-900 font-medium">
-            Data Source: PostgreSQL Database (hourly_energy table)
-          </p>
-          <p className="text-xs text-green-700 mt-1">
-            Fetching 7 latest records every 5 seconds | Auto-cycling display every 3 seconds
-          </p>
-        </div>
-      </motion.div>
     </div>
   );
 }
@@ -441,7 +404,6 @@ function GaugeCard({
   color: string;
   recordNumber: number;
 }) {
-  // ✅ Convert to number safely
   const safeValue = Number(value) || 0;
   const percentage = Math.min((safeValue / max) * 100, 100);
   const circumference = 2 * Math.PI * 90;
@@ -539,7 +501,6 @@ function MetricCard({
   icon: string;
   status: string;
 }) {
-  // ✅ Convert to number safely
   const safeValue = Number(value) || 0;
   
   return (

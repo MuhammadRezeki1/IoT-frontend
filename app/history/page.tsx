@@ -14,6 +14,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
+import { getApiUrl, apiConfig } from "@/lib/api-config";
 
 /* ================= TYPES ================= */
 type TimeFilter = "Hourly" | "Daily" | "Monthly";
@@ -142,9 +143,6 @@ function calculateCost(kWh: number): { idr: number; usd: number } {
   };
 }
 
-/* ================= API CONFIG ================= */
-const API_BASE_URL = 'http://localhost:3001';
-
 /* ================= MAIN PAGE ================= */
 export default function EnergyUsageHistoryPage() {
   const [activeFilter, setActiveFilter] = useState<TimeFilter>("Daily");
@@ -164,16 +162,17 @@ export default function EnergyUsageHistoryPage() {
   useEffect(() => {
     const fetchStatistics = async () => {
       try {
-        console.log('📡 [Stats] Fetching statistics from ALL data...');
-        const res = await fetch(`${API_BASE_URL}/power/statistics`);
+        console.log('📡 [Stats] Fetching from:', getApiUrl(apiConfig.endpoints.statistics));
+        
+        const res = await fetch(getApiUrl(apiConfig.endpoints.statistics));
         
         if (!res.ok) {
-          console.error('❌ [Stats] API error:', res.status);
+          console.error('❌ [Stats] HTTP error:', res.status);
           return;
         }
         
         const response: ApiResponseStats = await res.json();
-        console.log('✅ [Stats] Raw response:', response);
+        console.log('✅ [Stats] Response:', response);
         
         if (response.success && response.data) {
           setStatistics({
@@ -186,7 +185,7 @@ export default function EnergyUsageHistoryPage() {
         }
         
       } catch (err) {
-        console.error("❌ [Stats] Failed to fetch:", err);
+        console.error("❌ [Stats] Error:", err);
       }
     };
 
@@ -198,23 +197,23 @@ export default function EnergyUsageHistoryPage() {
   /* ===== FETCH TREND DATA BERDASARKAN FILTER (SEMUA DATA) ===== */
   useEffect(() => {
     const fetchTrendData = async () => {
-      console.log(`\n🔄 [${activeFilter}] Starting fetch ALL data...`);
+      console.log(`\n🔄 [${activeFilter}] Starting fetch...`);
       setLoading(true);
 
       try {
         let endpoint = "";
         
         if (activeFilter === "Hourly") {
-          endpoint = `${API_BASE_URL}/power/hourly/all`;
+          endpoint = apiConfig.endpoints.allHourly;
         } else if (activeFilter === "Daily") {
-          endpoint = `${API_BASE_URL}/power/daily/all`;
+          endpoint = apiConfig.endpoints.allDaily;
         } else {
-          endpoint = `${API_BASE_URL}/power/monthly/all`;
+          endpoint = apiConfig.endpoints.allMonthly;
         }
 
-        console.log(`📡 [${activeFilter}] Endpoint: ${endpoint}`);
+        console.log(`📡 [${activeFilter}] Fetching from:`, getApiUrl(endpoint));
 
-        const res = await fetch(endpoint);
+        const res = await fetch(getApiUrl(endpoint));
         
         if (!res.ok) {
           console.error(`❌ [${activeFilter}] HTTP ${res.status}`);
@@ -223,39 +222,36 @@ export default function EnergyUsageHistoryPage() {
         }
         
         const response: ApiResponse = await res.json();
-        console.log(`✅ [${activeFilter}] Raw response:`, response);
+        console.log(`✅ [${activeFilter}] Response:`, response);
 
         if (!response.success || !Array.isArray(response.data)) {
-          console.error(`❌ [${activeFilter}] Invalid response format`);
+          console.error(`❌ [${activeFilter}] Invalid format`);
           setTrendData([]);
           return;
         }
 
         if (response.data.length === 0) {
-          console.warn(`⚠️ [${activeFilter}] Empty data array`);
+          console.warn(`⚠️ [${activeFilter}] No data`);
           setTrendData([]);
           return;
         }
 
         console.log(`📊 [${activeFilter}] Processing ${response.data.length} records`);
 
-        // Format data
-        const formattedData: TrendData[] = response.data.map((item: any) => {
-          return {
-            time: item.time || `Point ${response.data.indexOf(item) + 1}`,
-            energy: Number(item.energy || item.total_energy) || 0,
-            voltage: item.voltage ? Number(item.voltage) : undefined,
-            current: item.current ? Number(item.current) : undefined,
-            hour: item.hour,
-          };
-        });
+        const formattedData: TrendData[] = response.data.map((item: any) => ({
+          time: item.time || `Point ${response.data.indexOf(item) + 1}`,
+          energy: Number(item.energy || item.total_energy) || 0,
+          voltage: item.voltage ? Number(item.voltage) : undefined,
+          current: item.current ? Number(item.current) : undefined,
+          hour: item.hour,
+        }));
 
-        console.log(`✨ [${activeFilter}] Formatted count: ${formattedData.length}`);
+        console.log(`✨ [${activeFilter}] Formatted: ${formattedData.length}`);
         setTrendData(formattedData);
         setLastUpdate(new Date());
         
       } catch (err) {
-        console.error(`❌ [${activeFilter}] Fetch error:`, err);
+        console.error(`❌ [${activeFilter}] Error:`, err);
         setTrendData([]);
       } finally {
         setLoading(false);
@@ -269,17 +265,18 @@ export default function EnergyUsageHistoryPage() {
   useEffect(() => {
     const fetchDailyUsage = async () => {
       try {
-        console.log('📡 [Bar] Fetching ALL daily data...');
-        const res = await fetch(`${API_BASE_URL}/power/daily/all`);
+        console.log('📡 [Bar] Fetching from:', getApiUrl(apiConfig.endpoints.allDaily));
+        
+        const res = await fetch(getApiUrl(apiConfig.endpoints.allDaily));
         
         if (!res.ok) {
-          console.error('❌ [Bar] API error:', res.status);
+          console.error('❌ [Bar] HTTP error:', res.status);
           setDailyUsageData([]);
           return;
         }
         
         const response: ApiResponse = await res.json();
-        console.log('✅ [Bar] Raw response:', response);
+        console.log('✅ [Bar] Response:', response);
 
         if (!response.success || !Array.isArray(response.data)) {
           console.warn('⚠️ [Bar] Invalid format');
@@ -293,7 +290,6 @@ export default function EnergyUsageHistoryPage() {
           return;
         }
 
-        // Format data - ambil 30 terakhir untuk bar chart
         const last30 = response.data.slice(-30);
         const formatted: DailyUsageData[] = last30.map((item: any) => ({
           day: item.day_name || item.time || 'Unknown',
@@ -301,11 +297,11 @@ export default function EnergyUsageHistoryPage() {
           date: item.date || new Date().toISOString(),
         }));
 
-        console.log('✨ [Bar] Formatted:', formatted.length, 'records');
+        console.log('✨ [Bar] Formatted:', formatted.length);
         setDailyUsageData(formatted);
         
       } catch (err) {
-        console.error("❌ [Bar] Failed:", err);
+        console.error("❌ [Bar] Error:", err);
         setDailyUsageData([]);
       }
     };
@@ -327,9 +323,6 @@ export default function EnergyUsageHistoryPage() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <p className="text-gray-600 font-medium">Loading energy data...</p>
-          <p className="text-sm text-gray-500 mt-2">
-            Fetching ALL {activeFilter.toLowerCase()} data from database
-          </p>
         </div>
       </div>
     );
@@ -344,10 +337,7 @@ export default function EnergyUsageHistoryPage() {
             Energy Usage History
           </h1>
           <p className="text-gray-600 mt-2">
-            Complete historical data from <span className="font-semibold text-blue-600">PostgreSQL Database</span>
-          </p>
-          <p className="text-sm text-gray-500 mt-1">
-            Last updated: {lastUpdate.toLocaleString('id-ID')}
+            Historical energy consumption data
           </p>
         </div>
 
@@ -384,11 +374,6 @@ export default function EnergyUsageHistoryPage() {
         <div className="mt-4 flex items-center justify-between">
           <div className="text-sm text-gray-600">
             Showing <span className="font-semibold text-blue-600">{trendData.length}</span> data points
-            <span className="ml-2 text-gray-500">
-              ({activeFilter === "Hourly" && "All hourly records"}
-              {activeFilter === "Daily" && "All daily records"}
-              {activeFilter === "Monthly" && "All monthly records"})
-            </span>
           </div>
           
           {loading && (
@@ -449,7 +434,7 @@ export default function EnergyUsageHistoryPage() {
               Energy Consumption Trend
             </h2>
             <span className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-medium">
-              {activeFilter} - ALL DATA
+              {activeFilter}
             </span>
           </div>
 
@@ -712,18 +697,6 @@ export default function EnergyUsageHistoryPage() {
         </div>
       </div>
 
-      {/* ================= DATA SOURCE INFO ================= */}
-      <div className="mt-8 bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center gap-3">
-        <div className="text-green-600 text-2xl">✅</div>
-        <div className="flex-1">
-          <p className="text-sm text-green-900 font-medium">
-            Data Source: PostgreSQL Database (ALL Data - No Time Filter)
-          </p>
-          <p className="text-xs text-green-700 mt-1">
-            Hourly: hourly_energy | Daily: daily_energy | Monthly: monthly_energy | Statistics: Aggregated from all records
-          </p>
-        </div>
-      </div>
     </div>
   );
 }

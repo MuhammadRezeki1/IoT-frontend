@@ -2,6 +2,7 @@
 
 import { useState, useEffect, JSX } from "react";
 import { Power, Lightbulb, Fan, Tv, Zap, Wifi, WifiOff, RefreshCw } from "lucide-react";
+import { getApiUrl, apiConfig, ApiResponse } from "@/lib/api-config";
 
 /* ================= TYPES ================= */
 type Device = {
@@ -12,8 +13,18 @@ type Device = {
   icon: "light" | "fan" | "tv";
 };
 
-/* ================= API CONFIG ================= */
-const API_BASE_URL = 'http://localhost:3001';
+type MqttStatusResponse = {
+  mqtt_connected: boolean;
+  status: string;
+  buffer_size?: number;
+  timestamp?: string;
+};
+
+type ControlResponse = {
+  success: boolean;
+  message: string;
+  status?: string;
+};
 
 /* ================= MAIN PAGE ================= */
 export default function DeviceRelayControlPage() {
@@ -39,11 +50,22 @@ export default function DeviceRelayControlPage() {
 
   const checkMqttStatus = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/power/status`);
-      const data = await res.json();
+      console.log('📡 [Device] Checking MQTT status:', getApiUrl(apiConfig.endpoints.status));
+      
+      const res = await fetch(getApiUrl(apiConfig.endpoints.status));
+      
+      if (!res.ok) {
+        console.error('❌ [Device] MQTT status error:', res.status);
+        setMqttConnected(false);
+        return;
+      }
+      
+      const data: MqttStatusResponse = await res.json();
+      console.log('✅ [Device] MQTT status:', data);
+      
       setMqttConnected(data.mqtt_connected);
     } catch (err) {
-      console.error('Failed to check MQTT status:', err);
+      console.error('❌ [Device] Failed to check MQTT status:', err);
       setMqttConnected(false);
     }
   };
@@ -66,13 +88,22 @@ export default function DeviceRelayControlPage() {
     const command = newStatus ? 'on' : 'off';
 
     try {
-      const res = await fetch(`${API_BASE_URL}/power/control`, {
+      console.log('📡 [Device] Sending control command:', command, 'to', getApiUrl(apiConfig.endpoints.control));
+      
+      const res = await fetch(getApiUrl(apiConfig.endpoints.control), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: command }),
       });
 
-      const result = await res.json();
+      if (!res.ok) {
+        console.error('❌ [Device] Control error:', res.status);
+        notify('❌ Gagal mengontrol relay');
+        return;
+      }
+
+      const result: ControlResponse = await res.json();
+      console.log('✅ [Device] Control response:', result);
 
       if (result.success) {
         setRelayStatus(newStatus);
@@ -84,7 +115,7 @@ export default function DeviceRelayControlPage() {
         notify(`❌ ${result.message}`);
       }
     } catch (err) {
-      console.error('Failed to toggle relay:', err);
+      console.error('❌ [Device] Failed to toggle relay:', err);
       notify('❌ Gagal menghubungi server');
     } finally {
       setLoading(false);
@@ -100,11 +131,20 @@ export default function DeviceRelayControlPage() {
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/power/reboot`, {
+      console.log('📡 [Device] Sending reboot command to:', getApiUrl(apiConfig.endpoints.reboot));
+      
+      const res = await fetch(getApiUrl(apiConfig.endpoints.reboot), {
         method: 'POST',
       });
 
-      const result = await res.json();
+      if (!res.ok) {
+        console.error('❌ [Device] Reboot error:', res.status);
+        notify('❌ Gagal mengirim perintah reboot');
+        return;
+      }
+
+      const result: ControlResponse = await res.json();
+      console.log('✅ [Device] Reboot response:', result);
 
       if (result.success) {
         notify('✅ Perintah reboot terkirim ke device');
@@ -112,7 +152,7 @@ export default function DeviceRelayControlPage() {
         notify('❌ Gagal mengirim perintah reboot');
       }
     } catch (err) {
-      console.error('Failed to reboot:', err);
+      console.error('❌ [Device] Failed to reboot:', err);
       notify('❌ Gagal menghubungi server');
     } finally {
       setLoading(false);
