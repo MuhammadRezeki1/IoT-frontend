@@ -39,26 +39,64 @@ type ChartData = {
   daya: number;
 };
 
+type RealtimeData = {
+  tegangan: number;
+  arus: number;
+  daya: number;
+  daya_watt: number;
+  energi_kwh: number;
+  frekuensi: number;
+  power_factor: number;
+  timestamp: string;
+};
+
 /* ================= PAGE ================= */
 export default function DashboardPage() {
-  // 7 data terakhir untuk semua keperluan
+  // 7 data terakhir untuk chart
   const [last7Data, setLast7Data] = useState<RawPowerData[]>([]);
   const [chartData, setChartData] = useState<ChartData[]>([]);
-  
+
+  // ✅ REALTIME data dari MQTT (update setiap 2 detik)
+  const [realtimeData, setRealtimeData] = useState<RealtimeData | null>(null);
+
   // UI states
   const [lastUpdated, setLastUpdated] = useState<string>("");
   const [systemOnline, setSystemOnline] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  /* ===== FETCH 7 DATA TERAKHIR DARI DATABASE ===== */
+  /* ===== FETCH REALTIME DATA DARI MQTT (update tiap 2 detik) ===== */
+  useEffect(() => {
+    const fetchRealtime = async () => {
+      try {
+        const res = await fetch(getApiUrl(apiConfig.endpoints.realtime));
+        if (!res.ok) return;
+
+        const response = await res.json();
+
+        if (response.success && response.data) {
+          setRealtimeData(response.data);
+          setLastUpdated(new Date().toLocaleTimeString("id-ID"));
+          setSystemOnline(true);
+        }
+      } catch (e) {
+        console.error("❌ [Realtime] Failed to fetch:", e);
+      }
+    };
+
+    fetchRealtime();
+    const interval = setInterval(fetchRealtime, 2000); // ✅ update tiap 2 detik
+    return () => clearInterval(interval);
+  }, []);
+
+  /* ===== FETCH 7 DATA TERAKHIR DARI DATABASE (untuk chart) ===== */
   useEffect(() => {
     const fetch7Data = async () => {
       try {
         console.log('📡 [Dashboard] Fetching from:', getApiUrl(apiConfig.endpoints.last7Data));
-        
+
         const res = await fetch(getApiUrl(apiConfig.endpoints.last7Data));
-        
+
         if (!res.ok) {
           const errorText = await res.text();
           console.error('❌ [Dashboard] API Error:', res.status, errorText);
@@ -69,37 +107,26 @@ export default function DashboardPage() {
         }
 
         const response: ApiResponse<RawPowerData[]> = await res.json();
-        console.log('✅ [Dashboard] Raw response:', response);
 
-        // Extract data from wrapper { success, data, count }
         let data: RawPowerData[] = [];
-        
+
         if (response.success !== undefined && response.data !== undefined) {
           data = response.data;
-          console.log('📦 [Dashboard] Extracted data from wrapper:', data);
         } else if (Array.isArray(response)) {
           data = response as unknown as RawPowerData[];
-          console.log('📦 [Dashboard] Direct array response:', data);
         } else {
-          console.error('❌ [Dashboard] Unexpected response format:', response);
           setSystemOnline(false);
           setLoading(false);
           return;
         }
 
         if (!Array.isArray(data)) {
-          console.error('❌ [Dashboard] Data is not an array:', data);
           setSystemOnline(false);
           setLoading(false);
           return;
         }
 
-        console.log('✅ [Dashboard] Received', data.length, 'records');
-        console.log('📊 [Dashboard] First record:', data[0]);
-        console.log('📊 [Dashboard] Last record:', data[data.length - 1]);
-
         if (data && data.length > 0) {
-          // Convert all numeric values properly
           const processedData: RawPowerData[] = data.map(item => ({
             id: item.id,
             tegangan: Number(item.tegangan) || 0,
@@ -111,11 +138,9 @@ export default function DashboardPage() {
             created_at: item.created_at,
           }));
 
-          console.log('✨ [Dashboard] Processed data:', processedData);
-
           setLast7Data(processedData);
-          
-          // Map untuk chart (Voltage, Current, Power)
+
+          // Map untuk chart
           const mapped: ChartData[] = processedData.map((item) => {
             const date = new Date(item.created_at);
             const timeLabel = date.toLocaleTimeString("id-ID", {
@@ -131,15 +156,11 @@ export default function DashboardPage() {
             };
           });
 
-          console.log('📈 [Dashboard] Chart data:', mapped);
-
           setChartData(mapped);
-          setLastUpdated(new Date().toLocaleTimeString("id-ID"));
           setSystemOnline(true);
           setLoading(false);
           setError(null);
         } else {
-          console.warn('⚠️ [Dashboard] No data received');
           setSystemOnline(true);
           setLoading(false);
           setError('No data available yet');
@@ -153,8 +174,7 @@ export default function DashboardPage() {
     };
 
     fetch7Data();
-    // Refresh every 10 seconds
-    const interval = setInterval(fetch7Data, 10000);
+    const interval = setInterval(fetch7Data, 5000); // chart refresh tiap 5 detik
     return () => clearInterval(interval);
   }, []);
 
@@ -185,7 +205,7 @@ export default function DashboardPage() {
               <li>• Check if backend is running at {apiConfig.baseUrl}</li>
               <li>• Verify MQTT device is sending data</li>
               <li>• Check if hourly_energy table has records</li>
-              <li>• Wait for data to be saved (batch interval: 1 minute)</li>
+              <li>• Wait for data to be saved (batch interval: 5 seconds)</li>
             </ul>
           </div>
           <button
@@ -212,19 +232,27 @@ export default function DashboardPage() {
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
             <p className="text-sm text-yellow-900">
               Make sure your IoT device is sending data via MQTT.
-              Data is saved every 1 minute to the database.
+              Data is saved every 5 seconds to the database.
             </p>
           </div>
           <div className="mt-4 text-sm text-gray-500">
-            Auto-refreshing every 10 seconds...
+            Auto-refreshing every 5 seconds...
           </div>
         </div>
       </div>
     );
   }
 
-  // Get latest data (last item) for current metrics
-  const latest = last7Data[last7Data.length - 1];
+  // ✅ Gunakan realtimeData untuk metric cards, fallback ke DB jika belum ada
+  const latest = realtimeData ? {
+    tegangan: Number(realtimeData.tegangan) || 0,
+    arus: Number(realtimeData.arus) || 0,
+    daya_watt: Number(realtimeData.daya_watt) || 0,
+    energi_kwh: Number(realtimeData.energi_kwh) || 0,
+    frekuensi: Number(realtimeData.frekuensi) || 50,
+    pf: Number(realtimeData.power_factor) || 0.95,
+    created_at: realtimeData.timestamp,
+  } : last7Data[last7Data.length - 1];
 
   /* ===== STATUS LOGIC ===== */
   const voltageStatus =
@@ -236,11 +264,6 @@ export default function DashboardPage() {
     (latest.frekuensi || 50) >= 49 && (latest.frekuensi || 50) <= 61 ? "Stable" : "Unstable";
   const pfStatus = latest.pf > 0.8 ? "Good" : "Poor";
 
-  /* ===== CALCULATE SUMMARY DATA ===== */
-  const energyUsed = latest.energi_kwh;
-  const estimatedCost = (energyUsed * 0.12).toFixed(2);
-  const co2Equivalent = (energyUsed * 0.5).toFixed(2);
-
   // Calculate average from 7 data
   const avgPower = (last7Data.reduce((sum, item) => sum + item.daya_watt, 0) / last7Data.length).toFixed(2);
   const avgVoltage = (last7Data.reduce((sum, item) => sum + item.tegangan, 0) / last7Data.length).toFixed(2);
@@ -251,15 +274,15 @@ export default function DashboardPage() {
       {/* ================= HERO ================= */}
       <section className="rounded-4xl bg-gradient-to-br from-blue-600 to-cyan-400 px-10 py-16 shadow-2xl animate-fadeIn">
         <div className="flex justify-center mb-6">
-          <span 
+          <span
             className={`inline-flex items-center gap-2 rounded-full px-4 py-1 text-white text-sm transition-all duration-300 ${
               systemOnline ? 'bg-white/20' : 'bg-red-500/30'
             }`}
           >
-            <span 
+            <span
               className={`h-2 w-2 rounded-full animate-pulse ${
                 systemOnline ? 'bg-green-400' : 'bg-red-400'
-              }`} 
+              }`}
             />
             {systemOnline ? 'System Online' : 'System Offline'}
           </span>
@@ -270,69 +293,75 @@ export default function DashboardPage() {
         </h1>
 
         <p className="mx-auto mt-6 max-w-175 text-center text-white/90 text-lg animate-slideUp">
-          Real-time insights from last {last7Data.length} database records
+          {realtimeData ? '🟢 Live MQTT data' : `📊 Last ${last7Data.length} database records`}
         </p>
       </section>
-
-      {/* ✅ REMOVED: Data Info Badge (kurang profesional) */}
 
       {/* ================= SYSTEM OVERVIEW ================= */}
       <section className="space-y-6">
         <div className="flex items-center justify-between">
           <h2 className="text-4xl font-bold text-black">Current Metrics</h2>
-          <span className="text-sm text-gray-500">
-            Last updated: {lastUpdated}
-          </span>
+          <div className="flex items-center gap-3">
+            {realtimeData && (
+              <span className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full">
+                <span className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
+                LIVE
+              </span>
+            )}
+            <span className="text-sm text-gray-500">
+              Last updated: {lastUpdated}
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <MetricCard 
-            label="Voltage" 
-            value={Number(latest.tegangan.toFixed(2))} 
-            unit="V" 
-            status={voltageStatus} 
-            icon={<Gauge />} 
-            delay="0.1s" 
+          <MetricCard
+            label="Voltage"
+            value={Number(latest.tegangan.toFixed(2))}
+            unit="V"
+            status={voltageStatus}
+            icon={<Gauge />}
+            delay="0.1s"
           />
-          <MetricCard 
-            label="Current" 
-            value={Number(latest.arus.toFixed(2))} 
-            unit="A" 
-            status={currentStatus} 
-            icon={<Activity />} 
-            delay="0.2s" 
+          <MetricCard
+            label="Current"
+            value={Number(latest.arus.toFixed(2))}
+            unit="A"
+            status={currentStatus}
+            icon={<Activity />}
+            delay="0.2s"
           />
-          <MetricCard 
-            label="Power" 
-            value={Number(latest.daya_watt.toFixed(2))} 
-            unit="Watt" 
-            status={powerStatus} 
-            icon={<Zap />} 
-            delay="0.3s" 
+          <MetricCard
+            label="Power"
+            value={Number(latest.daya_watt.toFixed(2))}
+            unit="Watt"
+            status={powerStatus}
+            icon={<Zap />}
+            delay="0.3s"
           />
-          <MetricCard 
-            label="Energy Used" 
-            value={Number(latest.energi_kwh.toFixed(4))} 
-            unit="kWh" 
-            status={energyStatus} 
-            icon={<Battery />} 
-            delay="0.4s" 
+          <MetricCard
+            label="Energy Used"
+            value={Number(latest.energi_kwh.toFixed(4))}
+            unit="kWh"
+            status={energyStatus}
+            icon={<Battery />}
+            delay="0.4s"
           />
-          <MetricCard 
-            label="Frequency" 
-            value={Number((latest.frekuensi || 50).toFixed(2))} 
-            unit="Hz" 
-            status={freqStatus} 
-            icon={<Radio />} 
-            delay="0.5s" 
+          <MetricCard
+            label="Frequency"
+            value={Number((latest.frekuensi || 50).toFixed(2))}
+            unit="Hz"
+            status={freqStatus}
+            icon={<Radio />}
+            delay="0.5s"
           />
-          <MetricCard 
-            label="Power Factor" 
-            value={Number(latest.pf.toFixed(2))} 
-            unit="" 
-            status={pfStatus} 
-            icon={<TrendingUp />} 
-            delay="0.6s" 
+          <MetricCard
+            label="Power Factor"
+            value={Number(latest.pf.toFixed(2))}
+            unit=""
+            status={pfStatus}
+            icon={<TrendingUp />}
+            delay="0.6s"
           />
         </div>
       </section>
@@ -344,7 +373,7 @@ export default function DashboardPage() {
         </h2>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* ===== POWER OVER TIME (7 DATA) ===== */}
+          {/* ===== POWER OVER TIME ===== */}
           <div className="rounded-3xl border border-gray-200 bg-white p-8 shadow-sm hover:shadow-xl transition-all duration-300 min-h-100 animate-slideInLeft">
             <h3 className="text-2xl font-bold mb-4">Power Consumption</h3>
             <p className="text-sm text-gray-600 mb-6">
@@ -359,12 +388,8 @@ export default function DashboardPage() {
                     <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.1} />
                   </linearGradient>
                 </defs>
-
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis 
-                  dataKey="time" 
-                  tick={{ fill: "#6b7280", fontSize: 12 }} 
-                />
+                <XAxis dataKey="time" tick={{ fill: "#6b7280", fontSize: 12 }} />
                 <YAxis tick={{ fill: "#6b7280" }} />
                 <Tooltip
                   contentStyle={{
@@ -373,9 +398,7 @@ export default function DashboardPage() {
                     borderRadius: '12px',
                     padding: '12px',
                   }}
-                  formatter={(value: any) => {
-                    return [`${Number(value).toFixed(2)} W`, "Power"];
-                  }}
+                  formatter={(value: any) => [`${Number(value).toFixed(2)} W`, "Power"]}
                 />
                 <Area
                   type="monotone"
@@ -383,18 +406,16 @@ export default function DashboardPage() {
                   stroke="#3b82f6"
                   strokeWidth={3}
                   fill="url(#powerGradient)"
-                  animationDuration={1000}
-                  animationBegin={0}
+                  animationDuration={500}
+                  isAnimationActive={false}
                 />
               </AreaChart>
             </ResponsiveContainer>
           </div>
 
-          {/* ===== VOLTAGE & CURRENT (7 DATA) ===== */}
+          {/* ===== VOLTAGE & CURRENT ===== */}
           <div className="rounded-3xl border border-gray-200 bg-white p-8 shadow-sm hover:shadow-xl transition-all duration-300 min-h-100 animate-slideInRight">
-            <h3 className="text-2xl font-bold mb-4">
-              Voltage & Current
-            </h3>
+            <h3 className="text-2xl font-bold mb-4">Voltage & Current</h3>
             <p className="text-sm text-gray-600 mb-6">
               Avg Voltage: {avgVoltage} V | Avg Current: {avgCurrent} A
             </p>
@@ -402,10 +423,7 @@ export default function DashboardPage() {
             <ResponsiveContainer width="100%" height={350}>
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis 
-                  dataKey="time" 
-                  tick={{ fill: "#6b7280", fontSize: 12 }}
-                />
+                <XAxis dataKey="time" tick={{ fill: "#6b7280", fontSize: 12 }} />
                 <YAxis yAxisId="left" stroke="#3b82f6" tick={{ fill: "#6b7280" }} />
                 <YAxis yAxisId="right" orientation="right" stroke="#10b981" tick={{ fill: "#6b7280" }} />
                 <Tooltip
@@ -421,30 +439,26 @@ export default function DashboardPage() {
                     return [`${Number(value).toFixed(2)}`, "Value"];
                   }}
                 />
-                <Legend 
-                  wrapperStyle={{ paddingTop: '20px' }}
-                  iconType="line"
-                />
-                <Line 
-                  yAxisId="left" 
-                  type="monotone" 
-                  dataKey="tegangan" 
-                  stroke="#3b82f6" 
+                <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="line" />
+                <Line
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="tegangan"
+                  stroke="#3b82f6"
                   strokeWidth={2}
                   dot={{ fill: "#3b82f6", r: 4 }}
                   name="Voltage (V)"
-                  animationDuration={1000}
+                  isAnimationActive={false}
                 />
-                <Line 
-                  yAxisId="right" 
-                  type="monotone" 
-                  dataKey="arus" 
-                  stroke="#10b981" 
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="arus"
+                  stroke="#10b981"
                   strokeWidth={2}
                   dot={{ fill: "#10b981", r: 4 }}
                   name="Current (A)"
-                  animationDuration={1000}
-                  animationBegin={200}
+                  isAnimationActive={false}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -452,7 +466,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* ================= ENERGY CONSUMPTION BAR CHART (7 DATA) ================= */}
+      {/* ================= ENERGY BAR CHART ================= */}
       <section className="mt-12 bg-gray-50 p-8 rounded-3xl animate-fadeIn">
         <h2 className="text-4xl font-bold mb-8">Energy Usage Comparison</h2>
 
@@ -462,7 +476,7 @@ export default function DashboardPage() {
           </h3>
 
           <ResponsiveContainer width="100%" height={600}>
-            <BarChart 
+            <BarChart
               data={last7Data.map((item, index) => ({
                 name: `Record ${index + 1}`,
                 time: new Date(item.created_at).toLocaleTimeString("id-ID", {
@@ -474,14 +488,14 @@ export default function DashboardPage() {
               margin={{ top: 20, right: 40, left: 20, bottom: 40 }}
             >
               <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" vertical={false} />
-              <XAxis 
-                dataKey="time" 
-                tick={{ fill: "#6b7280", fontSize: 14 }} 
+              <XAxis
+                dataKey="time"
+                tick={{ fill: "#6b7280", fontSize: 14 }}
                 axisLine={{ stroke: '#e5e7eb' }}
                 tickLine={false}
               />
-              <YAxis 
-                domain={[0, 'auto']} 
+              <YAxis
+                domain={[0, 'auto']}
                 axisLine={false}
                 tick={{ fill: "#6b7280", fontSize: 12 }}
                 tickLine={false}
@@ -508,8 +522,8 @@ export default function DashboardPage() {
                 dataKey="energy"
                 fill="#10b981"
                 radius={[12, 12, 0, 0]}
-                animationDuration={1000}
-                animationBegin={0}
+                animationDuration={500}
+                isAnimationActive={false}
                 maxBarSize={100}
               />
             </BarChart>
@@ -519,23 +533,23 @@ export default function DashboardPage() {
 
       {/* ================= ADDITIONAL FEATURES ================= */}
       <section className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6">
-        
-        {/* ===== CARD 1 - SYSTEM ALERTS ===== */}
+
+        {/* CARD 1 - SYSTEM ALERTS */}
         <div className="rounded-3xl border border-gray-200 bg-white p-8 shadow-sm hover:shadow-xl transition-all duration-300 animate-scaleIn" style={{ animationDelay: '0.1s' }}>
           <h3 className="text-3xl font-bold mb-2">System Alerts</h3>
           <p className="text-gray-600 mb-6">Recent notifications and warnings</p>
 
           <div className="space-y-4">
-            {/* Alert Success */}
             <div className="bg-green-100 border border-green-300 rounded-2xl p-5 flex gap-3 hover:scale-[1.02] transition-transform duration-200">
               <CheckCircle className="text-green-600 shrink-0" size={24} />
               <div className="flex-1">
                 <p className="font-semibold text-green-900">System operational</p>
-                <p className="text-sm text-green-600 mt-1">{last7Data.length} records loaded</p>
+                <p className="text-sm text-green-600 mt-1">
+                  {realtimeData ? 'MQTT realtime connected' : `${last7Data.length} records loaded from DB`}
+                </p>
               </div>
             </div>
 
-            {/* Alert Warning */}
             {latest.tegangan > 240 || latest.tegangan < 200 ? (
               <div className="bg-yellow-100 border border-yellow-200 rounded-2xl p-5 flex gap-3 hover:scale-[1.02] transition-transform duration-200">
                 <AlertTriangle className="text-yellow-600 shrink-0" size={24} />
@@ -554,7 +568,6 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* Alert Info */}
             <div className="bg-blue-100 border border-blue-300 rounded-2xl p-5 flex gap-3 hover:scale-[1.02] transition-transform duration-200">
               <Info className="text-blue-600 shrink-0" size={24} />
               <div className="flex-1">
@@ -565,7 +578,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ===== CARD 2 - STATISTICS FROM 7 DATA ===== */}
+        {/* CARD 2 - STATISTICS */}
         <div className="relative rounded-3xl border border-gray-200 bg-white p-8 shadow-sm hover:shadow-xl transition-all duration-300 animate-scaleIn" style={{ animationDelay: '0.2s' }}>
           <div className="absolute top-6 right-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-blue-600">
             <TrendingUp size={24} />
@@ -575,7 +588,6 @@ export default function DashboardPage() {
           <p className="text-gray-600 mb-6">Average values from recent data</p>
 
           <div className="space-y-4">
-            {/* Average Power */}
             <div className="bg-gray-100 rounded-2xl p-6 flex items-center gap-4 hover:scale-[1.02] transition-transform duration-200">
               <div className="bg-blue-100 p-2 rounded-xl shrink-0">
                 <Zap className="text-blue-500" size={28} />
@@ -586,7 +598,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Average Voltage */}
             <div className="bg-gray-100 rounded-2xl p-6 flex items-center gap-4 hover:scale-[1.02] transition-transform duration-200">
               <div className="bg-green-100 p-2 rounded-xl shrink-0">
                 <Gauge className="text-green-500" size={28} />
@@ -597,7 +608,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Average Current */}
             <div className="bg-gray-100 rounded-2xl p-6 flex items-center gap-4 hover:scale-[1.02] transition-transform duration-200">
               <div className="bg-yellow-100 p-2 rounded-xl shrink-0">
                 <Activity className="text-yellow-500" size={28} />
@@ -609,7 +619,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* System Status */}
           <div className="mt-6 inline-flex items-center gap-2 bg-green-100 rounded-full px-5 py-3">
             <span className="h-3 w-3 bg-green-600 rounded-full animate-pulse" />
             <span className="font-bold text-green-600">System Normal</span>
@@ -620,95 +629,35 @@ export default function DashboardPage() {
       {/* ================= CUSTOM ANIMATIONS ================= */}
       <style jsx>{`
         @keyframes fadeIn {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
-
         @keyframes slideDown {
-          from {
-            opacity: 0;
-            transform: translateY(-20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(-20px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-
         @keyframes slideUp {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-
         @keyframes slideInLeft {
-          from {
-            opacity: 0;
-            transform: translateX(-30px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
+          from { opacity: 0; transform: translateX(-30px); }
+          to { opacity: 1; transform: translateX(0); }
         }
-
         @keyframes slideInRight {
-          from {
-            opacity: 0;
-            transform: translateX(30px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
+          from { opacity: 0; transform: translateX(30px); }
+          to { opacity: 1; transform: translateX(0); }
         }
-
         @keyframes scaleIn {
-          from {
-            opacity: 0;
-            transform: scale(0.95);
-          }
-          to {
-            opacity: 1;
-            transform: scale(1);
-          }
+          from { opacity: 0; transform: scale(0.95); }
+          to { opacity: 1; transform: scale(1); }
         }
-
-        .animate-fadeIn {
-          animation: fadeIn 0.6s ease-out forwards;
-        }
-
-        .animate-slideDown {
-          animation: slideDown 0.8s ease-out forwards;
-        }
-
-        .animate-slideUp {
-          animation: slideUp 0.8s ease-out forwards;
-          animation-delay: 0.2s;
-          opacity: 0;
-        }
-
-        .animate-slideInLeft {
-          animation: slideInLeft 0.8s ease-out forwards;
-        }
-
-        .animate-slideInRight {
-          animation: slideInRight 0.8s ease-out forwards;
-        }
-
-        .animate-scaleIn {
-          animation: scaleIn 0.6s ease-out forwards;
-          opacity: 0;
-        }
+        .animate-fadeIn { animation: fadeIn 0.6s ease-out forwards; }
+        .animate-slideDown { animation: slideDown 0.8s ease-out forwards; }
+        .animate-slideUp { animation: slideUp 0.8s ease-out forwards; animation-delay: 0.2s; opacity: 0; }
+        .animate-slideInLeft { animation: slideInLeft 0.8s ease-out forwards; }
+        .animate-slideInRight { animation: slideInRight 0.8s ease-out forwards; }
+        .animate-scaleIn { animation: scaleIn 0.6s ease-out forwards; opacity: 0; }
       `}</style>
     </div>
   );
@@ -731,7 +680,7 @@ function MetricCard({
   delay?: string;
 }) {
   return (
-    <div 
+    <div
       className="relative rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-all hover:scale-[1.03] hover:shadow-xl animate-scaleIn"
       style={{ animationDelay: delay }}
     >
